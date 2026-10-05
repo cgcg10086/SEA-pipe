@@ -93,7 +93,13 @@ if [[ -n "${debug}" ]]; then # If in debugging mode, apply to the CORRECTED_DATA
 else # If in production mode, apply to the DATA column
     nocopy="-nocopy"
 fi
-applysolutions "${nocopy}" "${obsid}.ms" "${calfile}"
+
+if [[ -n "$nocopy" ]]; then
+    applysolutions "$nocopy" "${obsid}.ms" "$calfile"
+else
+    applysolutions "${obsid}.ms" "$calfile"
+fi
+# applysolutions "${nocopy}" "${obsid}.ms" "${calfile}"
 
 test_fail $?
 
