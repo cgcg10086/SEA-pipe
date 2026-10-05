@@ -35,7 +35,8 @@ else
     column=CORRECTED_DATA
 fi
 
-ms_flag_by_uvdist.py "${obsid}.ms" "${column}" -a 
+# ms_flag_by_uvdist.py "${obsid}.ms" "${column}" -a # need to rebuild container to use the updated ms_flag_by_uvdist.py 
+"${GXBASE}/sea_src/bin/ms_flag_by_uvdist.py" "${obsid}.ms" "${column}" -a # fixed ms_flag_by_uvdist.py but haven't rebuild container 
 test_fail $?
 
 if [[ "${GXTRACK}" == "track" ]]; then
