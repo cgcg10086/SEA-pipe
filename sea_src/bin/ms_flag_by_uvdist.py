@@ -112,7 +112,7 @@ def chan_avg(mset, data_column="CORRECTED_DATA", stride=1000):
     """
 
     data = MeasurementSet.get_data(mset)
-    data_avg_amp = np.full((mset.filtered.nrows(), 4), np.nan, dtype=np.complex_)
+    data_avg_amp = np.full((mset.filtered.nrows(), 4), np.nan, dtype=np.complex128) #`np.complex_` was removed in the NumPy 2.0 release. Use `np.complex128` instead.
 
     # Hides empty slice warnings when channel already completely flagged
     with warnings.catch_warnings():
