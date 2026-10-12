@@ -6,6 +6,12 @@ obsinp=OBSINP
 project_dir=PROJECT_DIR
 debug=DEBUG
 
+if [[ -z "${debug}" ]]; then
+    column=DATA
+else
+    column=CORRECTED_DATA
+fi
+
 # If obsinp is a file, then we are in an array job
 if [[ -f "${obsinp}" ]]; then
     taskid="${SLURM_ARRAY_TASK_ID}"
@@ -17,9 +23,11 @@ else
     obsid="${obsinp}"
 fi
 
-function test_fail {
-    if [[ $1 != 0 ]] && [[ "${GXTRACK}" == "track" ]]; then
-        track_task.py fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+test_fail() {
+    if [[ $1 != 0 ]]; then
+        if [[ "${GXTRACK}" == "track" ]]; then
+            track_task.py fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+        fi
         exit "$1"
     fi
 }
@@ -29,11 +37,6 @@ if [[ "${GXTRACK}" == "track" ]]; then
 fi
 
 cd "${project_dir}/${obsid}" || exit 1
-if [[ -z "${debug}" ]]; then
-    column=DATA
-else
-    column=CORRECTED_DATA
-fi
 
 # ms_flag_by_uvdist.py "${obsid}.ms" "${column}" -a # need to rebuild container to use the updated ms_flag_by_uvdist.py 
 "${GXBASE}/sea_src/bin/ms_flag_by_uvdist.py" "${obsid}.ms" "${column}" -a # fixed ms_flag_by_uvdist.py but haven't rebuild container 
