@@ -132,8 +132,8 @@ else
     dec_mainlobe="$(cat ${obsid}_mainlobes.txt | awk '{print $3}')"
 fi
 
-gal_check="$(check_src_fov.py -p ${ra_mainlobe} ${dec_mainlobe} -g)"
-vira_check="$(check_src_fov.py -p ${ra_mainlobe} ${dec_mainlobe} -s "VirA")"
+gal_check="$(check_src_fov.py -p ${ra_mainlobe} ${dec_mainlobe} -g)" # TRUE if source's alactic latitude <= 10 degrees (galcoords.b.value <= 10)
+vira_check="$(check_src_fov.py -p ${ra_mainlobe} ${dec_mainlobe} -s "VirA")" # TRUE if source is <= 30 degrees of VirA
 
 if [[ "${gal_check}" == "True" ]] || [[ "${vira_check}" == "True" ]]; then 
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # There is either gal plane or VirA in FoV so changing multiscale scale bias" 
@@ -156,7 +156,7 @@ else
 
     # Now shift the pointing centre to point straight up, 
     # which approximates minw without making the phase centre rattle around
-    chgcentre -zenith -shiftback "${ms}"
+    chgcentre -zenith -shiftback "${ms}" # WSClean 3.7 replaces it with -shift RA DEC
 fi
 
 # Create a template image that has all the same properties as our eventual WSClean image
@@ -207,6 +207,7 @@ wsclean \
     -abs-mem "${PROGMEMORY}" \
     "${multiscale}" \
     "${scalebias}" \
+    -gridder wgridder \
     -nmiter 3 \
     -niter 10000000 \
     -reuse-primary-beam \
