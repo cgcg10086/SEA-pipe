@@ -219,8 +219,6 @@ wsclean \
     -gridder wgridder \
     -nmiter 3 \
     -niter 100000 \
-    -reuse-primary-beam \
-    -apply-primary-beam \
     -auto-mask "${msigma}" \
     -auto-threshold "${tsigma}" \
     -name "${obsid}_deep" \
@@ -240,7 +238,8 @@ wsclean \
     "${ms}" | tee wsclean.log
      
     # -mwapath ${GXMWAPB} \ # For calculating the primary beam on-the-fly. Replace --reuse-primary-beam with this if you encounter errors with "the primary beam not found" by lookup_jones.py.
-
+    # -reuse-primary-beam \
+    # -apply-primary-beam \
 test_fail $?
 
 # Move back the measurement set to the original location if we copied it to RAM
