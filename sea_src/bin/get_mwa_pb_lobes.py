@@ -235,7 +235,7 @@ def make_beam_image(t, delays, freq, ra=None, dec=None, outname=None,
                           az=180.*u.deg,
                           obstime=t,
                           location=MWA)
-            radec_at_zenith = altaz.transform_to(FK5)
+            radec_at_zenith = altaz.transform_to(FK5())
             ra = radec_at_zenith.ra.value
             dec = radec_at_zenith.dec.value
 
@@ -313,7 +313,8 @@ def find_lobes(hdu, perc=0.1, centroid=True):
     hdu.data[hdu.data < perc] = 0.
 
     # Convert to a data format usable by scipy:
-    arr = hdu.data.copy().byteswap().newbyteorder().astype("float64")
+    # arr = hdu.data.copy().byteswap().newbyteorder().astype("float64")
+    arr = np.asarray(hdu.data, dtype="float64").copy()
     
     lobe_image, nlabels = ndimage.label(arr)
 
@@ -338,8 +339,10 @@ def find_lobes(hdu, perc=0.1, centroid=True):
             ra, dec = Lobe.pix_to_world(l.peaky, l.peakx, w)
 
         # Avoid those pesky zero-sized arrays:
-        l.ra = float(ra)
-        l.dec = float(dec) 
+        # l.ra = float(ra) # fails when the array has more than one element, which can happen with -P when pixels tie for the peak.
+        # l.dec = float(dec) # same 
+        float(np.ravel(ra)[0])
+        l.dec = float(np.ravel(dec)[0])
         l.sky = SkyCoord(ra=l.ra, dec=l.dec, unit=(u.deg, u.deg))
 
         lobes[lobe] = l
@@ -373,7 +376,8 @@ def main():
     args = ps.parse_args()
 
     if args.sidelobes and args.mainlobe:
-        return RuntimeError("No lobes to find!")
+        # return RuntimeError("No lobes to find!")
+        ps.error("--sidelobes and --mainlobe cannot be used together: no lobes to find!")
 
     if args.metafits:
 
