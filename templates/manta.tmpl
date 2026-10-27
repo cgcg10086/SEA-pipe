@@ -23,7 +23,16 @@ if [[ "${GXTRACK}" == "track" ]]; then
     done
 fi
 
-mwa_client "${allow_resubmit}" --csv="${obsinp}_manta.tmp" --dir="${project_dir}"
+# mwa_client "${allow_resubmit}" --csv="${obsinp}_manta.tmp" --dir="${project_dir}"
+# mwa_client will raise an error if ${allow_resubmit} is empty, so we need to use an array to pass the arguments to mwa_client.
+mwa_client_args=()
+if [[ -n "${allow_resubmit}" ]]; then
+    mwa_client_args+=(--allow-resubmit)
+fi
+
+mwa_client "${mwa_client_args[@]}" \
+    --csv="${obsinp}_manta.tmp" \
+    --dir="${project_dir}"
 
 n=1
 for obsid in $obsid_array; do
