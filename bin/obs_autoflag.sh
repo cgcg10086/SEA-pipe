@@ -120,7 +120,8 @@ submit_job() {
     echo '#!/bin/bash --login' > "${script}_job.sh"
     echo "source ${GXPROFILE}" >> "${script}_job.sh"
     echo "export FI_CXI_DEFAULT_VNI=$(od -vAn -N4 -tu < /dev/urandom | tr -d ' ')" >> "${script}_job.sh"
-    echo "srun singularity run ${GXCONTAINER} ${script}" >> "${script}_job.sh"
+    # echo "srun singularity run ${GXCONTAINER} ${script}" >> "${script}_job.sh"
+    echo "env -u SLURM_CPUS_PER_TASK srun singularity run ${GXCONTAINER} ${script}" >> "${script}_job.sh"
 
     sub="sbatch --begin=now --time=01:00:00 --mem=10G --cpus-per-task=5 ${GXTASKLINE} --clusters=${GXCLUSTER} --account=${GXACCOUNT} --partition=${GXSTANDARDQ} --job-name=autoflag_${obsinp} ${jobarray} --output=${output} --error=${error} ${depend} ${script}_job.sh"
 

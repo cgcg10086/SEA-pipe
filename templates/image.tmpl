@@ -130,23 +130,26 @@ else
     ms="${obsid}.ms"
 fi
 
-if [[ ! -s "${obsid}_mainlobes.txt" ]]; then 
-    # get_mwa_pb_lobes.py "${metafits}" -mM > "${obsid}_mainlobes.txt"
-    "${GXBASE}/sea_src/bin/get_mwa_pb_lobes.py" "${metafits}" -mM > "${obsid}_mainlobes.txt" # changes not yet built into the container, so use the one in the source code folder.
-fi
-ra_mainlobe="$(awk '{print $2}' "${obsid}_mainlobes.txt")"
-dec_mainlobe="$(awk '{print $3}' "${obsid}_mainlobes.txt")"
+# if [[ ! -s "${obsid}_mainlobes.txt" ]]; then 
+#     # get_mwa_pb_lobes.py "${metafits}" -mM > "${obsid}_mainlobes.txt"
+#     "${GXBASE}/sea_src/bin/get_mwa_pb_lobes.py" "${metafits}" -mM > "${obsid}_mainlobes.txt" # changes not yet built into the container, so use the one in the source code folder.
+#     test_fail $?
+# fi
+# ra_mainlobe="$(awk '{print $2}' "${obsid}_mainlobes.txt")"
+# dec_mainlobe="$(awk '{print $3}' "${obsid}_mainlobes.txt")"
 
 
-gal_check="$(check_src_fov.py -p ${ra_mainlobe} ${dec_mainlobe} -g)" # TRUE if source's alactic latitude <= 10 degrees (galcoords.b.value <= 10)
-vira_check="$(check_src_fov.py -p ${ra_mainlobe} ${dec_mainlobe} -s "VirA")" # TRUE if source is <= 30 degrees of VirA
+# gal_check="$(check_src_fov.py -p ${ra_mainlobe} ${dec_mainlobe} -g)" # TRUE if source's alactic latitude <= 10 degrees (galcoords.b.value <= 10)
+# vira_check="$(check_src_fov.py -p ${ra_mainlobe} ${dec_mainlobe} -s "VirA")" # TRUE if source is <= 30 degrees of VirA
 
-if [[ "${gal_check}" == "True" ]] || [[ "${vira_check}" == "True" ]]; then 
-    echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # There is either gal plane or VirA in FoV so changing multiscale scale bias" 
-    scalebias=(-multiscale-scale-bias 0.7) # Use array to avoid word splitting issues in bash. This is a more conservative scale bias for multiscale cleaning, which is more appropriate for fields with galactic emission or VirA in the FoV.
-else
-    scalebias=(-multiscale-scale-bias 0.6)
-fi 
+# if [[ "${gal_check}" == "True" ]] || [[ "${vira_check}" == "True" ]]; then 
+#     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # There is either gal plane or VirA in FoV so changing multiscale scale bias" 
+#     scalebias=(-multiscale-scale-bias 0.7) # Use array to avoid word splitting issues in bash. This is a more conservative scale bias for multiscale cleaning, which is more appropriate for fields with galactic emission or VirA in the FoV.
+# else
+#     scalebias=(-multiscale-scale-bias 0.6)
+# fi 
+
+scalebias=(-multiscale-scale-bias 0.6) # NIGHT will avoid galactic plane and VirA, so we can use the default scale bias for multiscale cleaning.
 
 # Replace Zenith projection with wgrider. Leave imaging centred on the existing MS phase centre 
 # Check whether the phase centre has already changed
