@@ -107,27 +107,29 @@ ninterval=$(taql "calc count([select distinct(TIME) from ${ms}])")
 interval_stop=$((ninterval-interval_start))
 intervals_out=$((interval_stop-interval_start))
 
-# Check whether the phase centre has already changed
-current=$(chgcentre "${ms}")
+# WSClean 3.7 no longer supports chgcentre -shiftback. wgridder handles w-terms,
+# so no phase-centre change is needed (same as image.tmpl).
+# # Check whether the phase centre has already changed
+# current=$(chgcentre "${ms}")
 
-if [[ $current == *"shift"* ]]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Detected that this measurement set has already had its phase centre changed. Not shifting."
-else
-    # Determine whether to shift the pointing centre to be more optimally-centred on the peak of the primary beam sensitivity
-    coords="$(calc_pointing.py ${metafits})"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Optimally shifting co-ordinates of measurement set to $coords, with zenith shiftback."
-    chgcentre "${ms}" "${coords}"
+# if [[ $current == *"shift"* ]]; then
+#     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Detected that this measurement set has already had its phase centre changed. Not shifting."
+# else
+#     # Determine whether to shift the pointing centre to be more optimally-centred on the peak of the primary beam sensitivity
+#     coords="$(calc_pointing.py ${metafits})"
+#     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Optimally shifting co-ordinates of measurement set to $coords, with zenith shiftback."
+#     chgcentre "${ms}" "${coords}"
     
-    # Now shift the pointing centre to point straight up, which approximates minw without making the phase centre rattle around
-    chgcentre -zenith -shiftback "${ms}"
-fi
+#     # Now shift the pointing centre to point straight up, which approximates minw without making the phase centre rattle around
+#     chgcentre -zenith -shiftback "${ms}"
+# fi
 
 # The number of ${obsid}_transient-t????-image.fits files should be equal to the number of intervals_out. If not, then run wsclean to make the images. If they exist, then skip this step.
 if [[ "$(ls "${obsid}"_transient-t????-image.fits 2>/dev/null | wc -l)" -ne $intervals_out ]]; then
     wsclean \
         -name "${obsid}_transient" \
+        -gridder wgridder \
         -abs-mem "${PROGMEMORY}" \
-        -nwlayers "${IMNCPUS}" \
         -data-column "${datacolumn}" \
         -subtract-model \
         -pol I \
@@ -144,6 +146,7 @@ if [[ "$(ls "${obsid}"_transient-t????-image.fits 2>/dev/null | wc -l)" -ne $int
         -interval "${interval_start}" "${interval_stop}" \
         -intervals-out "${intervals_out}" \
         "${ms}"
+        # -nwlayers "${IMNCPUS}" \ # deprecated in 3.7
     test_fail $?
 fi
 
@@ -153,46 +156,46 @@ if [[ ! -f "${obsid}_transient-t0000-image_bkg.fits" ]]; then
     test_fail $?
 fi 
 
-for file in "${obsid}"_transient-t????-image.fits; do
-    aegean \
-        --cores "${IMNCPUS}" \
-        --maxsummits=2 \
-        --background="${obsid}"_transient-t0000-image_bkg.fits \
-        --noise="${obsid}"_transient-t0000-image_rms.fits \
-        --seedclip=5 \
-        --negative \
-        --table="${file},${file%.fits}.reg" \
-        "${file}"
+# for file in "${obsid}"_transient-t????-image.fits; do
+#     aegean \
+#         --cores "${IMNCPUS}" \
+#         --maxsummits=2 \
+#         --background="${obsid}"_transient-t0000-image_bkg.fits \
+#         --noise="${obsid}"_transient-t0000-image_rms.fits \
+#         --seedclip=5 \
+#         --negative \
+#         --table="${file},${file%.fits}.reg" \
+#         "${file}"
 
-    test_fail $?
-done
+#     test_fail $?
+# done
 
-for file in "${obsid}"_transient-t????-image_comp.fits; do
-    stilts \
-        tpipe \
-        in="${file}" \
-        cmd="addcol -before island file \\\"${file}\\\"" \
-        cmd="addcol -before island interval_start ${interval_start}" \
-        cmd="addcol -before island interval_stop ${interval_stop}" \
-        cmd="addcol -before island nscans ${ninterval}" \
-        cmd="addcol -before island timeres ${timeres}" \
-        out="${file%.fits}_mod.fits"
+# for file in "${obsid}"_transient-t????-image_comp.fits; do
+#     stilts \
+#         tpipe \
+#         in="${file}" \
+#         cmd="addcol -before island file \\\"${file}\\\"" \
+#         cmd="addcol -before island interval_start ${interval_start}" \
+#         cmd="addcol -before island interval_stop ${interval_stop}" \
+#         cmd="addcol -before island nscans ${ninterval}" \
+#         cmd="addcol -before island timeres ${timeres}" \
+#         out="${file%.fits}_mod.fits"
 
-    test_fail $?
-done
+#     test_fail $?
+# done
 
-ls "${obsid}"_transient-t????-image_comp_mod.fits > concat.list
-stilts tcat in=@concat.list out="${obsid}_transient_concatenated_table.fits"
+# ls "${obsid}"_transient-t????-image_comp_mod.fits > concat.list
+# stilts tcat in=@concat.list out="${obsid}_transient_concatenated_table.fits"
 
-test_fail $?
+# test_fail $?
 
-stilts tmatch1 \
-    matcher="sky" \
-    params=120 \
-    action="identify" \
-    values="ra dec" \
-    in="${obsid}_transient_concatenated_table.fits" \
-    out="${obsid}_transient_matched_table.fits"
+# stilts tmatch1 \
+#     matcher="sky" \
+#     params=120 \
+#     action="identify" \
+#     values="ra dec" \
+#     in="${obsid}_transient_concatenated_table.fits" \
+#     out="${obsid}_transient_matched_table.fits"
 
 test_fail $?
 
@@ -201,7 +204,7 @@ make_time_cube.py "${obsid}"_transient
 test_fail $?
 
 # Dump the image and model files into a hdf5 container
-make_imstack.py --start 0 -n "${intervals_out}" "${obsid}_transient"
+"${GXBASE}/sea_src/bin/make_imstack.py" --start 0 -n "${intervals_out}" "${obsid}_transient"
 test_fail $?
 
 # Save the flags
