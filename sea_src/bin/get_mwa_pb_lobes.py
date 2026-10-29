@@ -17,6 +17,32 @@ from astropy.wcs import WCS
 
 from mwa_pb.primary_beam import MWA_Tile_full_EE
 
+# --- NumPy 2.x compatibility patch ------------------------------------------
+# mwa_pb (beam_full_EE.py) calls np.array(x, copy=False, ndmin=1), which raises
+# "Unable to avoid copy ..." on NumPy 2. In NumPy 2 the old copy=False meaning
+# ("copy only if needed") is copy=None. Remap it for mwa_pb's namespace only, so
+# nothing else in this script (or NumPy itself) is touched. Can be removed once
+# mwa_pb in the container is patched (copy=False -> np.atleast_1d(...)).
+import sys as _sys
+import numpy as _np
+if int(_np.__version__.split(".")[0]) >= 2:
+    import mwa_pb.beam_full_EE as _bfe
+
+    class _NumpyCompat(object):
+        def __getattr__(self, name):
+            if name == "NaN":          # removed in NumPy 2.0
+                return _np.nan
+            return getattr(_np, name)
+
+        @staticmethod
+        def array(*args, **kwargs):
+            if kwargs.get("copy", True) is False:
+                kwargs["copy"] = None
+            return _np.array(*args, **kwargs)
+
+    _bfe.np = _NumpyCompat()
+# --------------------remove when mwa_pb is updated or patched -----------------------------------------------
+
 MWA = EarthLocation.from_geodetic(lat=-26.703319*u.deg, 
                                   lon=116.67081*u.deg, 
                                   height=377*u.m)
@@ -341,7 +367,7 @@ def find_lobes(hdu, perc=0.1, centroid=True):
         # Avoid those pesky zero-sized arrays:
         # l.ra = float(ra) # fails when the array has more than one element, which can happen with -P when pixels tie for the peak.
         # l.dec = float(dec) # same 
-        float(np.ravel(ra)[0])
+        l.ra = float(np.ravel(ra)[0])
         l.dec = float(np.ravel(dec)[0])
         l.sky = SkyCoord(ra=l.ra, dec=l.dec, unit=(u.deg, u.deg))
 
