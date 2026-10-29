@@ -266,7 +266,7 @@ def find_valid_solutions(
     Returns:
         calids (numpy.ndarray): Parrallel array with calibration solution obsid corresponding to the obsids specified in `obsids`
     """
-    obsids = obsids.astype(np.int)
+    obsids = obsids.astype(int) # np.int has been removed in NumPy 2.x
     calids = obsids.copy()
 
     logger.debug(f"{len(obsids)=} in presented set of obsids")
