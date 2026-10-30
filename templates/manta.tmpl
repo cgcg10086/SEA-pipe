@@ -15,7 +15,12 @@ fi
 # Start download
 cd "${project_dir}" || exit 1
 
-obsid_array=$(awk '{print substr($1,8,10)}' < "${obsinp}_manta.tmp")
+if [[ ! -s "${obsinp}_manta.tmp" ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # ${project_dir}/${obsinp}_manta.tmp is missing or empty, so there is nothing to download."
+    exit 1
+fi
+
+obsid_array=$(awk '{print substr($1,8,10)}' < "${obsinp}_manta.tmp") # extract obsnum
 
 if [[ "${GXTRACK}" == "track" ]]; then
     for i in $(seq 1 "${#obsid_array[@]}"); do
@@ -38,16 +43,42 @@ n=1
 for obsid in $obsid_array; do
     # The mwa_client will download and untar the data in ${project_dir}/${jobid}/${obsid}.ms, where jobid is the ASVO jobid.
     # Move the data to ${project_dir}/${obsid}/${obsid}.ms to be consistent with the previous download method.
-    obs_data_ms=$(find ${project_dir} -name "${obsid}.ms" -type d) # obs_data_ms will be ${project_dir}/${jobid}/${obsid}.ms if the download was successful, or empty if not.
+    
+    # The following will cause an error when 1+ folders contains the $obsid.ms, e.g., different versions of a test of the same obsnum.
+    # obs_data_ms=$(find ${project_dir} -name "${obsid}.ms" -type d) # obs_data_ms will be ${project_dir}/${jobid}/${obsid}.ms if the download was successful, or empty if not.
 
-    if [[ ! -d "${obs_data_ms}" ]]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # The mwa_client failed to download data for obsid ${obsid}."
+    # if [[ ! -d "${obs_data_ms}" ]]; then
+    #     echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # The mwa_client failed to download data for obsid ${obsid}."
+    #     if [[ "${GXTRACK}" == "track" ]]; then
+    #         track_task.py fail --jobid="${SLURM_JOBID}" --taskid="${n}" --finish_time="$(date +%s)"
+    #     fi
+    #     exit 1
+    # else
+    #     mv "$(dirname ${obs_data_ms})" "${project_dir}/${obsid}"
+    # fi
+
+    # only look for obsnum.ms from folders named with pure digits (jobid folders) that != obsid
+    job_folders=()
+    for candidate in "${project_dir}"/*/"${obsid}.ms"; do
+        folder_name=$(basename "$(dirname "${candidate}")")
+        if [[ "${folder_name}" =~ ^[0-9]+$ ]] && [[ "${folder_name}" != "${obsid}" ]]; then
+            job_folders+=("$(dirname "${candidate}")")
+        fi
+    done
+
+    if [[ "${#job_folders[@]}" -ne 1 ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # Expected exactly one folder <jobid>/${obsid}.ms in ${project_dir}, but found ${#job_folders[@]}: ${job_folders[*]}"
         if [[ "${GXTRACK}" == "track" ]]; then
             track_task.py fail --jobid="${SLURM_JOBID}" --taskid="${n}" --finish_time="$(date +%s)"
         fi
         exit 1
+    elif [[ -e "${project_dir}/${obsid}" ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # ${project_dir}/${obsid} already exists, so ${job_folders[0]} was NOT renamed. Move that folder away, then run: mv ${job_folders[0]} ${project_dir}/${obsid}"
+        exit 1
     else
-        mv "$(dirname ${obs_data_ms})" "${project_dir}/${obsid}"
+        mv "${job_folders[0]}" "${project_dir}/${obsid}"
     fi
+
+
     ((n+=1))
 done

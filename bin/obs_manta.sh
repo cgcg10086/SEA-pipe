@@ -53,8 +53,8 @@ sanity_checks() {
         exit 1
     fi
 
-    if [[ "${edgeflag}" -lt "${freqres}" ]]; then
-        echo -e "edge_flag must be >= channel_average"
+    if [[ "${edgeflag}" -lt "${freqres}" ]] && [[ "${edgeflag}" -ne 0 ]]; then
+        echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # edge_flag must be >= frequency resolution.${RST}" 1>&2
         exit 1
     fi
 
@@ -101,7 +101,7 @@ sanity_checks() {
     done
     obsid_array=("${temp_obsid_array[@]}")
     if [[ "${#obsid_array[@]}" -eq 0 ]]; then
-        echo -e "${BLD}${BYLW}$(date '+%Y-%m-%d %H:%M:%S') # WARNING # All obsids already exist. Nothing to download.${RST}" 1>&2
+        echo -e "${BLD}${BYLW}$(date '+%Y-%m-%d %H:%M:%S') # WARNING # All obsids already exist. Nothing to download, so no job was submitted.${RST}" 1>&2
         return 0
     fi
 }
@@ -246,6 +246,10 @@ main() {
     if [[ "${exit_code}" -ne 0 ]]; then # If sanity_checks failed, tidy up the log files and exit with the same exit code.
         tidy-up_log_files
         exit "${exit_code}"
+    fi
+    if [[ "${#obsid_array[@]}" -eq 0 ]]; then # Every obsid already exists, so there is nothing to submit.
+        tidy-up_log_files
+        exit 0
     fi
     echo -e "${BLD}${BGRN}$(date '+%Y-%m-%d %H:%M:%S') # LOG # All sanity checks in obs_manta.sh passed.${RST}"
 
