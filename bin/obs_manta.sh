@@ -15,7 +15,7 @@ Options:
     -s timeres      : Time resolution in sec. Default = 4 s.
     -k freqres      : Frequency resolution in KHz. Default = 40 kHz.
     -r              : Enables --allow-resubmit option while calling the manta-ray-client (using the mwa_client copmmand). Disabled by default.
-    -f edgeflag     : Number of band edge channels to flag. Default = 80.
+    -f edgeflag     : Width in kHz flagged at each edge of every coarse channel. Default = 80. Must be at least the frequency resolution (-k).
     -t              : Test mode. Don't submit job, just make the batch file and then return the submission command.
     -h              : Print this help message and exit.
     obsinp          : (Required) The ObsID(s) to process, or a text file of obsids (newline separated). If specifying multiple obsids, they should be separated by spaces.
@@ -50,6 +50,11 @@ sanity_checks() {
     if [[ -z "${obsinp}" ]] || [[ -z "${project}" ]]; then
         echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # At least tell me your project directory name and what obsids to process.${RST}" 1>&2
         usage
+        exit 1
+    fi
+
+    if [[ "${edgeflag}" -lt "${freqres}" ]]; then
+        echo -e "edge_flag must be >= channel_average"
         exit 1
     fi
 
