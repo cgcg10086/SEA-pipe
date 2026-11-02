@@ -53,8 +53,9 @@ sanity_checks() {
         exit 1
     fi
 
-    if [[ "${edgeflag}" -lt "${freqres}" ]] && [[ "${edgeflag}" -ne 0 ]]; then
-        echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # edge_flag must be >= frequency resolution.${RST}" 1>&2
+    freqres_used="${freqres:-40}"    # ASVO averages to 40 kHz when -k is not given
+    if [[ "${edgeflag}" -lt "${freqres_used}" ]] && [[ "${edgeflag}" -ne 0 ]]; then
+        echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # edge_flag (${edgeflag} kHz) must be >= frequency resolution (${freqres_used} kHz).${RST}" 1>&2
         exit 1
     fi
 

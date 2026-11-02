@@ -30,15 +30,30 @@ test_fail() {
     fi
 }
 
-# Setting the reference antenna
-if [[ "${obsid}" -gt 1201000000 ]] && [[ "${obsid}" -lt 1201400000 ]]; then refant=8
-elif [[ "${obsid}" -gt 1300000000 ]] && [[ "${obsid}" -lt 1342950000 ]]; then refant=0
-elif [[ "${obsid}" -gt 1342950000 ]] && [[ "${obsid}" -lt 1425294600 ]]; then refant=8
-elif [[ "${obsid}" -gt 1425294600 ]] && [[ "${obsid}" -lt 1436999999 ]]; then refant=0
-elif [[ "${obsid}" -gt 1451700000 ]] && [[ "${obsid}" -lt 1451800000 ]]; then refant=8 # Jan 2026
-elif [[ "${obsid}" -ge 1452536120 ]] && [[ "${obsid}" -le 1452542632 ]]; then refant=21
-else refant=7 # Everything else
-fi
+# # Setting the reference antenna
+# if [[ "${obsid}" -gt 1201000000 ]] && [[ "${obsid}" -lt 1201400000 ]]; then refant=8
+# elif [[ "${obsid}" -gt 1300000000 ]] && [[ "${obsid}" -lt 1342950000 ]]; then refant=0
+# elif [[ "${obsid}" -gt 1342950000 ]] && [[ "${obsid}" -lt 1425294600 ]]; then refant=8
+# elif [[ "${obsid}" -gt 1425294600 ]] && [[ "${obsid}" -lt 1436999999 ]]; then refant=0
+# elif [[ "${obsid}" -gt 1451700000 ]] && [[ "${obsid}" -lt 1451800000 ]]; then refant=8 # Jan 2026
+# elif [[ "${obsid}" -ge 1452536120 ]] && [[ "${obsid}" -le 1452542632 ]]; then refant=21
+# else refant=7 # Everything else
+# fi
+
+# Reference tile: the first tile that is not flagged in the metafits
+# refant=$(python - "${metafits}" <<'PY'
+# import sys
+# from astropy.io import fits
+
+# with fits.open(sys.argv[1]) as hdus:
+#     tiles = hdus["TILEDATA"].data
+#     print(tiles["Antenna"][tiles["Flag"] == 0][0])
+# PY
+# )
+
+refant=$(python3 ${GXBASE}/sea_src/bin/find_reference_tile.py "${metafits}") # first unflagged tile in metafits
+test_fail $?
+echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Reference tile (first unflagged tile in the metafits): ${refant}"
 
 # GLEAM-X sky model
 catfile="${SOFTBASE}/sky_models/GGSM_updated.fits"
@@ -46,8 +61,14 @@ catfile="${SOFTBASE}/sky_models/GGSM_updated.fits"
 # MWA beam information
 MWAPATH="${GXMWAPB}"
 
-# Minimum baseline of 75 lambda (=250m at 88 MHz) for calibration
+# The gains are fitted only on intermediate baselines.  
+# Exclude short baselines: diffuse emission that a point-source catalogue doesn’t contain.
+# Exclude long baselines: resolve structure that the GLEAM-based sky model (about 2′ resolution) can’t describe.
+
+# Baseline range for calibration, in wavelengths.
+# The 1667 lambda maximum corresponds to the longest 128T baseline at 200 MHz.
 minuv=75
+maxuv=1667
 
 # start
 
@@ -73,37 +94,51 @@ else
     ms="${obsid}.ms"
 fi
 
-calibrator=$(pyhead.py -p CALIBSRC "$metafits" | awk '{print $3}' )
-echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Calibrator is ${calibrator}"
-
 echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Running infield calibration for ${obsid}"
-RA=$(pyhead.py -p RA "$metafits" | awk '{print $3}' )
-Dec=$(pyhead.py -p DEC "$metafits" | awk '{print $3}' )
-chan=$(pyhead.py -p CENTCHAN "$metafits" | awk '{print $3}' )
+# Record the phase centre in the log (read only; nothing in the pipeline shifts it any more)
+chgcentre "${ms}"
 
-# Inspect the measurement set's phase centre; chgcentre reports "shift" when it has
-# already been shifted, which must be handled before calibration.
-current=$(chgcentre "${ms}") 
+# removed the shift check & shift back to optimal pointing 
+# calibrator=$(pyhead.py -p CALIBSRC "$metafits" | awk '{print $3}' )
+# echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Calibrator is ${calibrator}"
 
-if [[ $current == *"shift"* ]]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Detected that this measurement set has undergone a denormal shift; this must be undone before calibration."
-    # Get the optimal pointing coordinates from the observation metadata.
-    coords=$(calc_optimum_pointing.py --metafits "${metafits}")
-    echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Optimally shifting co-ordinates of measurement set to ${coords}, without zenith shiftback."
-    # Rephase the measurement set to those coordinates, without applying a zenith shiftback.
-    chgcentre "${ms}" "${coords[@]}"
-else
-    echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Detected that this measurement set has not yet had its phase centre changed. Not shifting."
-fi
+# echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Running infield calibration for ${obsid}"
+# RA=$(pyhead.py -p RA "$metafits" | awk '{print $3}' )
+# Dec=$(pyhead.py -p DEC "$metafits" | awk '{print $3}' )
+# chan=$(pyhead.py -p CENTCHAN "$metafits" | awk '{print $3}' )
 
-# uv range for calibration based on GLEAM-based sky model
-# Calibrate takes a maximum uv range in metres
-# Calculate min uvw in metres
-minuvm=$(echo "234 * ${minuv} / ${chan}" | bc -l)
-# In wavelengths, maximum 128T baseline at 200MHz was 1667 lambda long
-# 300/1.28 * 1667 = 390000
-# Calculate max uvw in metres
-maxuvm=$(echo "390000 / (${chan} + 11)" | bc -l)
+# # Inspect the measurement set's phase centre; chgcentre reports "shift" when it has
+# # already been shifted, which must be handled before calibration.
+# current=$(chgcentre "${ms}") 
+
+# if [[ $current == *"shift"* ]]; then
+#     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Detected that this measurement set has undergone a denormal shift; this must be undone before calibration."
+#     # Get the optimal pointing coordinates from the observation metadata-- the sky position where the primary beam is strongest.
+#     # Highly off-zenith pointings have their beam peak far from the nominal pointing. 
+#     # When the phase centre was moved to the beam peak-- not useful for NIGHT.
+#     coords=$(calc_optimum_pointing.py --metafits "${metafits}")
+#     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Optimally shifting co-ordinates of measurement set to ${coords}, without zenith shiftback."
+#     # Rephase the measurement set to those coordinates, without applying a zenith shiftback.
+#     chgcentre "${ms}" "${coords[@]}"
+# else
+#     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Detected that this measurement set has not yet had its phase centre changed. Not shifting."
+# fi
+
+# # uv range for calibration based on GLEAM-based sky model
+# # Calibrate takes a maximum uv range in metres
+# # Calculate min uvw in metres
+# minuvm=$(echo "234 * ${minuv} / ${chan}" | bc -l)
+# # In wavelengths, maximum 128T baseline at 200MHz was 1667 lambda long
+# # 300/1.28 * 1667 = 390000
+# # Calculate max uvw in metres
+# maxuvm=$(echo "390000 / (${chan} + 11)" | bc -l)
+
+# hyperdrive compares the data visibilities with visibilities predicted from a sky model, and uses the differences to calculate antenna gains. 
+# It iterates until the gains converge or it reaches --max-iterations. 
+# Result: one complex 2×2 matrix per tile and per frequency channel (XX, XY, YX, YY).
+# Diagonal terms (J_XX, J_YY): gX and gY in plots.
+# Off-diagonal terms (J_XY, J_YX): leakage, a little of one polarisation appearing in the other. DX and DY. 
+# leakage should be << gX, gY. Otherwise, flag that file. 
 
 if [[ -n "${ionotest}" ]]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Performing ionospheric triage."
@@ -120,7 +155,7 @@ if [[ -n "${ionotest}" ]]; then
         --timesteps $(eval echo {0..$(echo "$chunk_size - 1" | bc)}) \
         --num-sources 500 \
         --uvw-min "${minuv}lambda" \
-        --uvw-max 1667lambda \
+        --uvw-max "${maxuv}lambda" \
         --beam-file "${MWAPATH}/mwa_full_embedded_element_pattern.h5" \
         --outputs "${solutions1}" \
         -d "${ms}" "${metafits}" \
@@ -140,7 +175,7 @@ if [[ -n "${ionotest}" ]]; then
         --max-iterations 500 \
         --num-sources 1000 \
         --uvw-min "${minuv}lambda" \
-        --uvw-max 1667lambda \
+        --uvw-max "${maxuv}lambda" \
         --beam-file "${MWAPATH}/mwa_full_embedded_element_pattern.h5" \
         --outputs "${solutions}" \
         -d "${ms}" "${metafits}" \
@@ -160,7 +195,7 @@ if [[ -n "${ionotest}" ]]; then
         --max-iterations 500 \
         --num-sources 1000 \
         --uvw-min "${minuv}lambda" \
-        --uvw-max 1667lambda \
+        --uvw-max "${maxuv}lambda" \
         --beam-file "${MWAPATH}/mwa_full_embedded_element_pattern.h5" \
         --outputs "${solutions}" \
         -d "${ms}" "${metafits}" \
@@ -175,7 +210,7 @@ if [[ -n "${ionotest}" ]]; then
 
     echo "Ionospheric calibration finished. Creating plots and statistics. "
 
-    python "${GXBASE}/gleam_x/bin/aocal_diff.py" --metafits="${metafits}" --names --lastsol "${solutions}" "${solutions1}" --refant="${refant}"
+    python3 "${GXBASE}/sea_src/bin/aocal_diff.py" --metafits="${metafits}" --names --lastsol "${solutions}" "${solutions1}" --refant="${refant}"
     if [[ -n "${GXDBHOST}" ]] && [[ -n "${GXDBPORT}" ]] && [[ -n "${GXDBUSER}" ]] && [[ -n "${GXDBPASS}" ]]; then
         iono_update.py --ionocsv "${obsid}_ionodiff.csv"
     fi
@@ -190,7 +225,7 @@ hyperdrive \
     --uvw-min "${minuv}lambda" \
     --max-iterations 500 \
     --num-sources 500 \
-    --uvw-max 1667lambda \
+    --uvw-max "${maxuv}lambda" \
     --beam-file "${MWAPATH}/mwa_full_embedded_element_pattern.h5" \
     --outputs "${solutions}" \
     -d "${ms}" "${metafits}" \
@@ -198,8 +233,9 @@ hyperdrive \
 test_fail $?
 
 # Create a version divided through by the reference antenna, so that all observations have the same relative XY phase, allowing polarisation calibration solutions to be transferred
-# This also sets the cross-terms to zero by default
+# This also sets the cross-terms to zero by default, unless --preserve_xterms
 aocal_phaseref.py "${solutions}" "${solutions%.bin}_ref.bin" "${refant}" --xy -2.806338586067941065e+01 --dxy -4.426533296449057023e-07  --ms "${obsid}.ms"
+test_fail $?
 
 # plot calibration solutions
 hyperdrive \
