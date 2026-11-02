@@ -81,14 +81,16 @@ RA=$(pyhead.py -p RA "$metafits" | awk '{print $3}' )
 Dec=$(pyhead.py -p DEC "$metafits" | awk '{print $3}' )
 chan=$(pyhead.py -p CENTCHAN "$metafits" | awk '{print $3}' )
 
-# Check whether the phase centre has already changed
-# Calibration will fail if it has, so measurement set must be shifted back to its original position
+# Inspect the measurement set's phase centre; chgcentre reports "shift" when it has
+# already been shifted, which must be handled before calibration.
 current=$(chgcentre "${ms}") 
 
 if [[ $current == *"shift"* ]]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Detected that this measurement set has undergone a denormal shift; this must be undone before calibration."
+    # Get the optimal pointing coordinates from the observation metadata.
     coords=$(calc_optimum_pointing.py --metafits "${metafits}")
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Optimally shifting co-ordinates of measurement set to ${coords}, without zenith shiftback."
+    # Rephase the measurement set to those coordinates, without applying a zenith shiftback.
     chgcentre "${ms}" "${coords[@]}"
 else
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Detected that this measurement set has not yet had its phase centre changed. Not shifting."
