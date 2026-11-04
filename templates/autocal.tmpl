@@ -51,9 +51,6 @@ test_fail() {
 # PY
 # )
 
-refant=$(python3 ${GXBASE}/sea_src/bin/find_reference_tile.py "${metafits}") # first unflagged tile in metafits
-test_fail $?
-echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Reference tile (first unflagged tile in the metafits): ${refant}"
 
 # GLEAM-X sky model
 catfile="${SOFTBASE}/sky_models/GGSM_updated.fits"
@@ -84,6 +81,11 @@ if [[ ! -f "${metafits}" ]] || [[ ! -s "${metafits}" ]]; then
     wget -O "${metafits}" "http://ws.mwatelescope.org/metadata/fits?obs_id=${obsid}"
     test_fail $?
 fi
+
+refant=$(python3 ${GXBASE}/sea_src/bin/find_reference_tile.py "${metafits}") # first unflagged tile in metafits
+test_fail $?
+echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Reference tile (first unflagged tile in the metafits): ${refant}"
+
 
 # In RAM or here?
 if [[ -n "${ramcopy}" ]]; then
@@ -234,6 +236,8 @@ test_fail $?
 
 # Create a version divided through by the reference antenna, so that all observations have the same relative XY phase, allowing polarisation calibration solutions to be transferred
 # This also sets the cross-terms to zero by default, unless --preserve_xterms
+# phase added (degrees) = xy + dxy × frequency (in Hz)
+# why -2.806338586067941065e+01 and -4.426533296449057023e-07?
 aocal_phaseref.py "${solutions}" "${solutions%.bin}_ref.bin" "${refant}" --xy -2.806338586067941065e+01 --dxy -4.426533296449057023e-07  --ms "${obsid}.ms"
 test_fail $?
 

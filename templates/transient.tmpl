@@ -101,11 +101,11 @@ else
     ms="${obsid}.ms"
 fi
 
-# Skipping first and last 8 seconds
-interval_start=$((8/timeres))
-ninterval=$(taql "calc count([select distinct(TIME) from ${ms}])")
-interval_stop=$((ninterval-interval_start))
-intervals_out=$((interval_stop-interval_start))
+# # Skipping first and last 8 seconds
+# interval_start=$((8/timeres))
+# ninterval=$(taql "calc count([select distinct(TIME) from ${ms}])")
+# interval_stop=$((ninterval-interval_start))
+# intervals_out=$((interval_stop-interval_start))
 
 # WSClean 3.7 no longer supports chgcentre -shiftback. wgridder handles w-terms,
 # so no phase-centre change is needed (same as image.tmpl).
@@ -204,8 +204,8 @@ make_time_cube.py "${obsid}"_transient
 test_fail $?
 
 # Dump the image and model files into a hdf5 container
-"${GXBASE}/sea_src/bin/make_imstack.py" --start 0 -n "${intervals_out}" "${obsid}_transient"
-test_fail $?
+# "${GXBASE}/sea_src/bin/make_imstack.py" --start 0 -n "${intervals_out}" "${obsid}_transient"
+# test_fail $?
 
 # Save the flags
 taql "select ctod(TIME), gsum(ntrue(amplitude(DATA[,::3])==0.0)), gsum(ntrue(FLAG[,::3])), gmean(WEIGHT_SPECTRUM[,::3]) from ${ms} where ANTENNA1 != ANTENNA2 groupby TIME" > "${obsid}_summary.txt"
