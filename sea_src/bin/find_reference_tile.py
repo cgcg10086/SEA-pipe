@@ -5,6 +5,9 @@ Choose the reference tile for calibration: the first tile that is not flagged in
 Usage:
     python find_reference_tile.py 1476960704.metafits
 
+Tiles that you flagged by hand (they are not in the metafits) can be skipped as well:
+    python find_reference_tile.py 1476960704.metafits --skip-file 1476960704_flagged_tiles.txt
+
 The tile number is printed on one line, so a shell script can capture it:
     refant=$(python find_reference_tile.py "${metafits}")
 
@@ -23,6 +26,7 @@ calibration plots to check that the reference tile behaves well.
 """
 
 import argparse
+import os
 import sys
 
 from astropy.io import fits
@@ -46,12 +50,28 @@ def read_tile_inputs(metafits_file):
     return antenna_numbers, flags
 
 
-def find_first_unflagged_tile(antenna_numbers, flags):
+def read_skipped_tiles(skip_file):
     """
-    Return the number of the first tile whose X and Y inputs are both unflagged.
-    Return None if every tile is flagged.
+    Read the tile numbers that were flagged by hand, from a text file.
+    The file holds whole numbers separated by spaces or line breaks.
+
+    Return an empty list if the file does not exist (no tile has been flagged by hand yet).
+    A word that is not a whole number makes int() raise a ValueError, which main() reports.
     """
-    # Step 1: for each tile, find out whether any of its two inputs is flagged.
+    skipped_tiles = []
+    if not os.path.exists(skip_file):
+        return skipped_tiles
+    with open(skip_file) as file_handle:
+        for word in file_handle.read().split():
+            skipped_tiles.append(int(word))
+    return skipped_tiles
+
+
+def make_flag_table(antenna_numbers, flags, skipped_tiles):
+    """
+    Return a dictionary that says, for every tile number, whether the tile is flagged.
+    A tile is flagged if any of its two inputs is flagged in the metafits, or if it is in skipped_tiles.
+    """
     tile_is_flagged = {}
     for antenna_number, flag in zip(antenna_numbers, flags):
         antenna_number = int(antenna_number)
@@ -60,24 +80,23 @@ def find_first_unflagged_tile(antenna_numbers, flags):
         if int(flag) != 0:
             tile_is_flagged[antenna_number] = True
 
-    # Step 2: go through the tiles in order and return the first one that is not flagged.
+    # Tiles that were flagged by hand count as flagged too.
+    for antenna_number in skipped_tiles:
+        tile_is_flagged[antenna_number] = True
+
+    return tile_is_flagged
+
+
+def find_first_unflagged_tile(tile_is_flagged):
+    """Return the number of the first tile that is not flagged, or None if every tile is flagged."""
     for antenna_number in sorted(tile_is_flagged):
         if not tile_is_flagged[antenna_number]:
             return antenna_number
-
     return None
 
 
-def count_flagged_tiles(antenna_numbers, flags):
-    """Return how many tiles have at least one flagged input, and how many tiles there are."""
-    tile_is_flagged = {}
-    for antenna_number, flag in zip(antenna_numbers, flags):
-        antenna_number = int(antenna_number)
-        if antenna_number not in tile_is_flagged:
-            tile_is_flagged[antenna_number] = False
-        if int(flag) != 0:
-            tile_is_flagged[antenna_number] = True
-
+def count_flagged_tiles(tile_is_flagged):
+    """Return how many tiles are flagged, and how many tiles there are."""
     number_flagged = 0
     for antenna_number in tile_is_flagged:
         if tile_is_flagged[antenna_number]:
@@ -90,25 +109,38 @@ def main():
         description="Print the number of the first tile that is not flagged in a metafits file."
     )
     parser.add_argument("metafits", help="the metafits file of the observation")
+    parser.add_argument(
+        "--skip-file",
+        default=None,
+        help="text file with the numbers of tiles that were flagged by hand; these tiles are never chosen",
+    )
     arguments = parser.parse_args()
 
-    # Reading can fail if the file is missing, is not a FITS file, or has no TILEDATA table.
+    # Reading can fail if a file is missing, is not a FITS file, has no TILEDATA table,
+    # or if the skip file holds something that is not a whole number.
+    skipped_tiles = []
     try:
         antenna_numbers, flags = read_tile_inputs(arguments.metafits)
-    except (OSError, KeyError) as error:
-        print(f"ERROR: cannot read the tile table from {arguments.metafits}: {error}", file=sys.stderr)
+        if arguments.skip_file is not None:
+            skipped_tiles = read_skipped_tiles(arguments.skip_file)
+    except (OSError, KeyError, ValueError) as error:
+        print(f"ERROR: cannot read the tile information: {error}", file=sys.stderr)
         sys.exit(1)
 
-    reference_tile = find_first_unflagged_tile(antenna_numbers, flags)
+    tile_is_flagged = make_flag_table(antenna_numbers, flags, skipped_tiles)
+
+    reference_tile = find_first_unflagged_tile(tile_is_flagged)
     if reference_tile is None:
-        print(f"ERROR: every tile is flagged in {arguments.metafits}.", file=sys.stderr)
+        print(f"ERROR: every tile is flagged (in {arguments.metafits} or by hand).", file=sys.stderr)
         sys.exit(1)
 
-    number_flagged, number_of_tiles = count_flagged_tiles(antenna_numbers, flags)
+    number_flagged, number_of_tiles = count_flagged_tiles(tile_is_flagged)
 
     # Messages for people go to stderr (they end up in the .e log).
     # Only the result goes to stdout, so that "refant=$(...)" in a shell script captures just the number.
-    print(f"INFO: {number_flagged} of {number_of_tiles} tiles are flagged in the metafits.", file=sys.stderr)
+    print(f"INFO: {number_flagged} of {number_of_tiles} tiles are flagged (metafits and by hand).", file=sys.stderr)
+    if len(skipped_tiles) > 0:
+        print(f"INFO: tiles flagged by hand and skipped: {skipped_tiles}", file=sys.stderr)
     print(f"INFO: the first unflagged tile is number {reference_tile}.", file=sys.stderr)
     print(reference_tile)
 

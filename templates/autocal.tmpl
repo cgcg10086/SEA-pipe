@@ -30,16 +30,6 @@ test_fail() {
     fi
 }
 
-# # Setting the reference antenna
-# if [[ "${obsid}" -gt 1201000000 ]] && [[ "${obsid}" -lt 1201400000 ]]; then refant=8
-# elif [[ "${obsid}" -gt 1300000000 ]] && [[ "${obsid}" -lt 1342950000 ]]; then refant=0
-# elif [[ "${obsid}" -gt 1342950000 ]] && [[ "${obsid}" -lt 1425294600 ]]; then refant=8
-# elif [[ "${obsid}" -gt 1425294600 ]] && [[ "${obsid}" -lt 1436999999 ]]; then refant=0
-# elif [[ "${obsid}" -gt 1451700000 ]] && [[ "${obsid}" -lt 1451800000 ]]; then refant=8 # Jan 2026
-# elif [[ "${obsid}" -ge 1452536120 ]] && [[ "${obsid}" -le 1452542632 ]]; then refant=21
-# else refant=7 # Everything else
-# fi
-
 # Reference tile: the first tile that is not flagged in the metafits
 # refant=$(python - "${metafits}" <<'PY'
 # import sys
@@ -62,10 +52,9 @@ MWAPATH="${GXMWAPB}"
 # Exclude short baselines: diffuse emission that a point-source catalogue doesn’t contain.
 # Exclude long baselines: resolve structure that the GLEAM-based sky model (about 2′ resolution) can’t describe.
 
-# Baseline range for calibration, in wavelengths.
-# The 1667 lambda maximum corresponds to the longest 128T baseline at 200 MHz.
-minuv=75
-maxuv=1667
+# Baseline range for calibration, in wavelengths. 
+minuv=75   # cut shorter baseline since we don't need to model diffused structures. 
+maxuv=1667   # the longest 128T baseline at 200 MHz (if use the gleam-based sky model).
 
 # start
 
@@ -82,7 +71,7 @@ if [[ ! -f "${metafits}" ]] || [[ ! -s "${metafits}" ]]; then
     test_fail $?
 fi
 
-refant=$(python3 ${GXBASE}/sea_src/bin/find_reference_tile.py "${metafits}") # first unflagged tile in metafits
+refant=$(python3 ${GXBASE}/sea_src/bin/find_reference_tile.py "${metafits}" --skip-file "${obsid}_flagged_tiles.txt") # first unflagged tile in the metafits, skipping tiles flagged by hand
 test_fail $?
 echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Reference tile (first unflagged tile in the metafits): ${refant}"
 
@@ -217,6 +206,14 @@ if [[ -n "${ionotest}" ]]; then
         iono_update.py --ionocsv "${obsid}_ionodiff.csv"
     fi
 fi
+
+# Keep the results of an earlier run: put the date and time in front of the names of the old solutions and plots.
+earlier_run_stamp=$(date +%Y%m%d_%H%M%S)
+for old_file in "${obsid}"_local_gleam_model_solutions_initial*; do
+    if [[ -e "${old_file}" ]]; then
+        mv "${old_file}" "earlier_${earlier_run_stamp}_${old_file}"
+    fi
+done
 
 # At the moment, assume that the ionosphere is OK, and derive some real solutions
 solutions="${obsid}_local_gleam_model_solutions_initial.bin"
