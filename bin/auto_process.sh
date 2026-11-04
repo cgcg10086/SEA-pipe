@@ -16,8 +16,8 @@ Options:
     -c calid        : The ObsID(s) of the calibration observation(s) to use. If a single ObsID is specified, solutions from project/calid/calid_*_solutions.bin
                       will be applied. If obsinp is a text file, then calid can be a one-to-one map to the ObsIDs to be processed. Default is obsinp.
     -g              : Get the data from ASVO. If not specified, the data is assumed to be already present in the project directory.
-    -f              : Flag the data using the obs_autoflag.sh script, which flags only the tiles known to be bad in specific obsids.
-                      This is deprecated and will be superseded by a calibration solution flagging tool in a future version.
+    -f tilelist     : Flag tiles before calibration, using obs_autoflag.sh. tilelist is a text file in the project directory with one line
+                      per observation: the obsid, then the tile indices to flag (for example: 1234567890 12 45 93  # a comment).
                       Currently, uvflag.sh attempts to flag bad visibilities (those having large amplitudes).
     -r              : Copy the mesaurement set to RAM, avoiding a significant disk I/O.
                       Faster, but needs ~3x as much RAM as the size of the measurement set. Disabled by default.
@@ -37,8 +37,9 @@ Options:
 Examples:
     $(basename $0) -p myproject -r obsids.txt
     $(basename $0) -p myproject -e SEA-pipe-setonix.profile -b 250 -r -s obsids.txt
-    $(basename $0) -p myproject -g -f -r -u -m -n -i -s 1234567890 1234567980 1234568790
-    $(basename $0) -p myproject -g -f -r -z -u -m -n -i -s 1234567890
+    $(basename $0) -p myproject -f tile_flags.txt -r -s obsids.txt
+    $(basename $0) -p myproject -g -r -u -m -n -i -s 1234567890 1234567980 1234568790
+    $(basename $0) -p myproject -g -r -z -u -m -n -i -s 1234567890
     $(basename $0) -p myproject -t -v 1234567890
 
 Author: Kenil Ajudiya (k.ajudiya@postgrad.curtin.edu.au)"
@@ -140,6 +141,11 @@ sanity_checks() {
     fi
     cd "${project_dir}" || return 1
 
+    if [[ -n "${tilelist}" ]] && [[ ! -f "${tilelist}" ]]; then
+        echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # The tile list ${project_dir}/${tilelist} does not exist.${RST}" 1>&2
+        return 1
+    fi
+
     if [[ -f "${obsinp}" ]]; then
         mapfile -t obsid_array < "${obsinp}"
     else
@@ -221,8 +227,20 @@ process_obsids() {
             call_submission_script "obs_manta.sh" || return $?
         fi
 
-        if [[ -n "${autoflag}" ]]; then
-            call_submission_script "obs_autoflag.sh" || return $?
+        if [[ -n "${tilelist}" ]]; then
+            # obs_autoflag.sh reads a tile list, not a list of obsids. Give it only the lines of the tile list that belong to this batch.
+            obsid_batch_file="${batch_file}"
+            batch_file="${batch_file}.tiles"
+            rm -f "${batch_file}"     # start with an empty file
+            for batch_obsid in "${batch_obsids[@]}"; do
+                grep "${batch_obsid}" "${tilelist}" >> "${batch_file}"     # copy the lines of the tile list that contain this obsid
+            done
+            if [[ -s "${batch_file}" ]]; then
+                call_submission_script "obs_autoflag.sh" || return $?
+            else
+                echo -e "${BLD}${BCYN}$(date '+%Y-%m-%d %H:%M:%S') # INFO #${RST} No observation of this batch is in ${tilelist}, so nothing is flagged."
+            fi
+            batch_file="${obsid_batch_file}"
         fi
 
         call_submission_script "obs_autocal.sh" "${ramcopy}" || return $?
@@ -295,7 +313,7 @@ main() {
     test=
     batchsize=100
     getdata=
-    autoflag=
+    tilelist=
     ramcopy=
     debug=
     calid=
@@ -311,7 +329,7 @@ main() {
         usage
         exit 0
     fi
-    while getopts 'e:d:p:b:c:gfrzumnisth' OPTION; do
+    while getopts 'e:d:p:b:c:gf:rzumnisth' OPTION; do
         case "$OPTION" in
             e)
                 profile=${OPTARG}
@@ -332,7 +350,7 @@ main() {
                 getdata=1
                 ;;
             f)
-                autoflag=1
+                tilelist=${OPTARG}
                 ;;
             r)
                 ramcopy=-r

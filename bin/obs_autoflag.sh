@@ -1,25 +1,27 @@
 #! /bin/bash
 
 usage() {
-echo "This script submits SLURM jobs to flag only the tiles known to be bad in specific obsids. It will submit a job-array with one task for each obsid.
-This is deprecated and will be removed in future releases.
+echo "This script submits SLURM jobs to flag tiles that you have chosen by hand, for example after looking at the calibration solution plots.
+It will submit a job-array with one task for each observation.
 
-Usage: $(basename $0) [OPTIONS] obsinp
+Usage: $(basename $0) [OPTIONS] tilelist
 
 Options:
     -d jobid        : SLURM JobID of the job whose successful completion is required before this job starts. Default is no dependency.
     -p project      : (Required) Basename of the project directory.
     -t              : Test mode. Don't submit job, just make the batch file and then return the submission command.
     -h              : Print this help message and exit.
-    obsinp          : (Required) The ObsID(s) to process, or a text file of obsids (newline separated). If specifying multiple obsids, they should be separated by spaces.
+    tilelist        : (Required) A text file in the project directory, with one line per observation:
+                    the obsid, then the tile indices to flag, separated by spaces. Example lines:
+                        1234567890 12 45 93  # 45 is noisy
+                        1234568790 7
+                        1234569990
+                    A line with only an obsid flags nothing. Blank lines, and anything after a #, are ignored.
+                    A tile index is the number in front of the colon in the title of a solution plot panel (for example 7 in "7: Tile018").
 
 Examples:
-    $(basename $0) -p myproject obsids.txt
-    $(basename $0) -p myproject 1234567890
-    $(basename $0) -p myproject 1234567890 1234568790
-    $(basename $0) -p myproject -d SLURM_JOBID obsids.txt
-
-Author: Kenil Ajudiya (k.ajudiya@postgrad.curtin.edu.au)"
+    $(basename $0) -p myproject tile_flags.txt
+    $(basename $0) -p myproject -d SLURM_JOBID tile_flags.txt"
 }
 
 def_colors() {
@@ -64,21 +66,61 @@ sanity_checks() {
     fi
     cd "${project_dir}" || return 1
 
-    if [[ -f "${obsinp}" ]]; then
-        mapfile -t obsid_array < "${obsinp}"
-    else
-        obsid_array=(${obsinp})
-        if [[ "${#obsid_array[@]}" -gt 1 ]]; then
-            obsinp="${obsid_array[0]}_and_$((${#obsid_array[@]}-1))_more"
-        fi
+    # if [[ -f "${obsinp}" ]]; then
+    #     mapfile -t obsid_array < "${obsinp}"
+    # else
+    #     obsid_array=(${obsinp})
+    #     if [[ "${#obsid_array[@]}" -gt 1 ]]; then
+    #         obsinp="${obsid_array[0]}_and_$((${#obsid_array[@]}-1))_more"
+    #     fi
+    # fi
+
+    # for obsid in "${obsid_array[@]}"; do # Validate that all the obsids are integers
+    #     if ! [[ "${obsid}" =~ ^[0-9]+$ ]]; then
+    #         echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # All ObsIDs must be valid integers Found: ${obsid}.${RST}" 1>&2
+    #         return 1
+    #     fi
+    # done
+    if [[ ! -f "${obsinp}" ]]; then
+        echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # ${project_dir}/${obsinp} is not a file. Give a text file with one line per observation: the obsid, then the tile indices to flag.${RST}" 1>&2
+        return 1
     fi
 
-    for obsid in "${obsid_array[@]}"; do # Validate that all the obsids are integers
-        if ! [[ "${obsid}" =~ ^[0-9]+$ ]]; then
-            echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # All ObsIDs must be valid integers Found: ${obsid}.${RST}" 1>&2
+    # Every line of the tile list is an obsid followed by tile numbers.
+    # Blank lines are skipped, and everything after a # (a comment) is ignored.
+    # The lines that are used are copied into a new file, so that line N of the new file is array task N.
+    mapfile -t lines < "${obsinp}"
+    clean_list="${obsinp}.cleaned"
+    rm -f "${clean_list}"
+    obsid_array=()
+    tile_pattern='^[0-9 ]*$'     # only digits and spaces
+
+    for line in "${lines[@]}"; do
+        content=$(echo "${line}" | cut -d'#' -f1)     # remove a comment: keep only what is in front of the first #
+        read -r obsid tiles <<< "${content}"          # the first word goes into obsid, the rest into tiles
+
+        if [[ -z "${obsid}" ]]; then
+            continue     # a blank line, or a line that had only a comment
+        fi
+
+        if ! [[ "${obsid}" =~ ^[0-9]{10}$ ]]; then
+            echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # The first word of this line in ${obsinp} must be an obsid with 10 digits: ${line}${RST}" 1>&2
             return 1
         fi
+
+        if ! [[ "${tiles}" =~ ${tile_pattern} ]]; then
+            echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # After the obsid, this line in ${obsinp} may only have tile numbers separated by spaces: ${line}${RST}" 1>&2
+            return 1
+        fi
+
+        echo "${obsid} ${tiles}" >> "${clean_list}"
+        obsid_array+=("${obsid}")
     done
+
+    if [[ "${#obsid_array[@]}" -eq 0 ]]; then
+        echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # No observations were found in ${obsinp}.${RST}" 1>&2
+        return 1
+    fi
 }
 
 submit_job() {
@@ -96,8 +138,11 @@ submit_job() {
 
     script="${GXSCRIPT}/autoflag_${obsinp}.sh"
 
-    cat "${GXBASE}/templates/autoflag.tmpl" | sed -e "s:OBSINP:${obsinp}:g" \
-                                                -e "s:PROJECT_DIR:${project_dir}:g" > "${script}"
+    # pass a clean list to template: comments and empty lines removed. 
+    # cat "${GXBASE}/templates/autoflag.tmpl" | sed -e "s:OBSINP:${obsinp}:g" \
+                                                # -e "s:PROJECT_DIR:${project_dir}:g" > "${script}"
+    cat "${GXBASE}/templates/autoflag.tmpl" | sed -e "s:TILELIST:${clean_list}:g" \
+                                    -e "s:PROJECT_DIR:${project_dir}:g" > "${script}"
 
     output="${GXLOG}/slurm_logs/autoflag_${obsinp}.o%A"
     error="${GXLOG}/slurm_logs/autoflag_${obsinp}.e%A"
