@@ -176,8 +176,8 @@ def getcardmatches(hdr, template):
     """
     
     items=hdr.items()
-    template2=re.sub("\?",".",template)
-    template3=re.sub("\*",".*?",template2)
+    template2=re.sub(r"\?",".",template)
+    template3=re.sub(r"\*",".*?",template2)
     template4="^" + template3 + "$"
     matchedcards=[]
     for item in items:

@@ -34,7 +34,7 @@ fi
 test_fail() {
     if [[ $1 != 0 ]]; then
         if [[ "${GXTRACK}" == "track" ]]; then
-            track_task.py fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+            "${GXBASE}/sea_src/bin/track_task.py" fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
         fi
         exit "$1"
     fi
@@ -42,7 +42,7 @@ test_fail() {
 
 # Update database
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
 fi
 
 data_dir="${project_dir}/${obsid}"
@@ -79,7 +79,7 @@ fi
 basescale=0.6     # the same as in image.tmpl; the pixel size is basescale / chan 
 
 # Set up channel-dependent options
-chan="$(pyhead.py -p CENTCHAN ${metafits} | awk '{print $3}')"
+chan="$("${GXBASE}/sea_src/bin/pyhead.py" -p CENTCHAN "${metafits}" | awk '{print $3}')"
 
 # Settings to support transient imaging / cleaning
 niter=12000
@@ -161,11 +161,11 @@ if [[ "$(ls "${obsid}"_transient-t????-image.fits 2>/dev/null | wc -l)" -ne $int
     test_fail $?
 fi
 
-if [[ ! -f "${obsid}_transient-t0000-image_bkg.fits" ]]; then 
-    # Then you need to source-find the data... BANE would be expensive to run more than once, so just do it... once
-    BANE --compress --cores=1 "${obsid}_transient-t0000-image.fits"
-    test_fail $?
-fi 
+# if [[ ! -f "${obsid}_transient-t0000-image_bkg.fits" ]]; then 
+#     # Then you need to source-find the data... BANE would be expensive to run more than once, so just do it... once
+#     BANE --compress --cores=1 "${obsid}_transient-t0000-image.fits"
+#     test_fail $?
+# fi 
 
 # for file in "${obsid}"_transient-t????-image.fits; do
 #     aegean \
@@ -208,10 +208,10 @@ fi
 #     in="${obsid}_transient_concatenated_table.fits" \
 #     out="${obsid}_transient_matched_table.fits"
 
-test_fail $?
+# test_fail $?
 
 # Make a cube and a standard deviation image
-make_time_cube.py "${obsid}"_transient
+"${GXBASE}/sea_src/bin/make_time_cube.py" "${obsid}"_transient    
 test_fail $?
 
 # Dump the image and model files into a hdf5 container
@@ -230,8 +230,8 @@ fi
 
 # Clean up
 rm "${obsid}"_transient-t????-*.fits
-rm "${obsid}_transient_concatenated_table.fits"
+# rm "${obsid}_transient_concatenated_table.fits"
 
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
 fi

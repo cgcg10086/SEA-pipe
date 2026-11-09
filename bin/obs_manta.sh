@@ -173,7 +173,7 @@ submit_job() {
         output="${output//%A/${jobid}}"
 
         for i in $(seq "${#obsid_array[@]}"); do
-            track_task.py queue --jobid=${jobid} --taskid=0 --task='download' --submission_time=$(date +%s) \
+            "${GXBASE}/sea_src/bin/track_task.py" queue --jobid=${jobid} --taskid=0 --task='download' --submission_time=$(date +%s) \
                 --batch_file=${script}_job.sh --obs_id=${obsid_array[$((i-1))]} --stderr=${error} --stdout=${output}
         done
     fi

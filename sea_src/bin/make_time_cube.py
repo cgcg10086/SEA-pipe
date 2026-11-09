@@ -68,6 +68,7 @@ hdu[0].header["CTYPE3"] = "TIME"
 hdu[0].header["CRPIX3"] = 1.0
 hdu[0].header["CRVAL3"] = gps_times[0]     # GPS time of the first frame
 hdu[0].header["OBSID"] = obsid
+hdu[0].header["TIMEREF"] = "middle of each frame"
 hdu[0].header["CDELT3"] = step
 hdu[0].header["CUNIT3"] = "sec"
 

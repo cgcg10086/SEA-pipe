@@ -23,7 +23,7 @@ fi
 test_fail() {
     if [[ $1 != 0 ]]; then
         if [[ "${GXTRACK}" == "track" ]]; then
-            track_task.py fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+            "${GXBASE}/sea_src/bin/track_task.py" fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
         fi
         exit "$1"
     fi
@@ -38,7 +38,7 @@ tsigma=1
 
 # Update database
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
 fi
 
 data_dir="${project_dir}/${obsid}"
@@ -73,7 +73,7 @@ taql alter table "${ms}" drop column MODEL_DATA
 
 # Checking if there is a gross sidelobe: 
 if [[ ! -f "${obsid}_beamlobes.txt" ]]; then
-    get_mwa_pb_lobes.py "${metafits}" -mS > "${obsid}_beamlobes.txt"
+    "${GXBASE}/sea_src/bin/get_mwa_pb_lobes.py" "${metafits}" -mS > "${obsid}_beamlobes.txt"
 else
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Already have the beam, not recalculating"
 fi
@@ -86,12 +86,12 @@ else
     self="False"
 fi 
 
-get_mwa_pb_lobes.py "${metafits}" -mM > "${obsid}_mainlobes.txt"
+"${GXBASE}/sea_src/bin/get_mwa_pb_lobes.py" "${metafits}" -mM > "${obsid}_mainlobes.txt"
 ra_mainlobe="$(cat ${obsid}_mainlobes.txt | awk '{print $2}')"
 dec_mainlobe="$(cat ${obsid}_mainlobes.txt | awk '{print $3}')"
 
 # Check if any a-team source is in the main fov
-ateam_fov="$(check_src_fov.py -p ${ra_mainlobe} ${dec_mainlobe})"
+ateam_fov=$("${GXBASE}/sea_src/db/check_src_fov.py" -p ${ra_mainlobe} ${dec_mainlobe})
 if [[ "${ateam_fov}" == "False" ]]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # There is neither Crab nor CygA in the fov or sidelobe, no self cal needed!"
     self2="False"
@@ -125,10 +125,10 @@ elif [[ "${obsid}" -ge 1191580576 ]] ; then
 fi
 
 # Set up channel-dependent options
-chan="$(pyhead.py -p CENTCHAN ${metafits} | awk '{print $3}')"
-bandwidth="$(pyhead.py -p BANDWDTH ${metafits} | awk '{print $3}')"
-centfreq="$(pyhead.py -p FREQCENT ${metafits} | awk '{print $3}')"
-chans="$(pyhead.py -p CHANNELS ${metafits} | awk '{print $3}' | sed 's/,/ /g')"
+chan="$("${GXBASE}/sea_src/bin/pyhead.py" -p CENTCHAN "${metafits}" | awk '{print $3}')"
+bandwidth="$("${GXBASE}/sea_src/bin/pyhead.py" -p BANDWDTH "${metafits}" | awk '{print $3}')"
+centfreq="$("${GXBASE}/sea_src/bin/pyhead.py" -p FREQCENT "${metafits}" | awk '{print $3}')"
+chans="$("${GXBASE}/sea_src/bin/pyhead.py" -p CHANNELS "${metafits}" | awk '{print $3}' | sed 's/,/ /g')"
 chans=($chans)
 
 # Pixel scale
@@ -191,7 +191,7 @@ else
         "${obsid}_selfsolutions.bin" | tee calibrate.log 
 
     aocal_plot.py --refant=127 "${obsid}_selfsolutions.bin"
-    result=$(check_assign_solutions.py -t "0.5" check "${obsid}_selfsolutions.bin")
+    result=$("${GXBASE}/sea_src/bin/check_assign_solutions.py" -t "0.5" check "${obsid}_selfsolutions.bin")
     if echo "${result}" | grep -q fail; then
         mv "${obsid}_selfsolutions.bin" "${obsid}_selfsolutions_failed.bin"
         echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # FAILED SELF CAL!"
@@ -210,5 +210,5 @@ if [[ -n "${ramcopy}" ]]; then
 fi
 
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
 fi

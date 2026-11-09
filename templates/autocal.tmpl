@@ -24,7 +24,7 @@ fi
 test_fail() {
     if [[ $1 != 0 ]]; then
         if [[ "${GXTRACK}" == "track" ]]; then
-            track_task.py fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+            "${GXBASE}/sea_src/bin/track_task.py" fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
         fi
         exit "$1"
     fi
@@ -59,7 +59,7 @@ maxuv=1667   # the longest 128T baseline at 200 MHz (if use the gleam-based sky 
 # start
 
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
 fi
 
 data_dir="${project_dir}/${obsid}"
@@ -71,7 +71,7 @@ if [[ ! -f "${metafits}" ]] || [[ ! -s "${metafits}" ]]; then
     test_fail $?
 fi
 
-refant=$(python3 ${GXBASE}/sea_src/bin/find_reference_tile.py "${metafits}" --skip-file "${obsid}_flagged_tiles.txt") # first unflagged tile in the metafits, skipping tiles flagged by hand
+refant=$(python3 "${GXBASE}/sea_src/bin/find_reference_tile.py" "${metafits}" --skip-file "${obsid}_flagged_tiles.txt") # first unflagged tile in the metafits, skipping tiles flagged by hand
 test_fail $?
 echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Reference tile (first unflagged tile in the metafits): ${refant}"
 
@@ -203,7 +203,7 @@ if [[ -n "${ionotest}" ]]; then
 
     python3 "${GXBASE}/sea_src/bin/aocal_diff.py" --metafits="${metafits}" --names --lastsol "${solutions}" "${solutions1}" --refant="${refant}"
     if [[ -n "${GXDBHOST}" ]] && [[ -n "${GXDBPORT}" ]] && [[ -n "${GXDBUSER}" ]] && [[ -n "${GXDBPASS}" ]]; then
-        iono_update.py --ionocsv "${obsid}_ionodiff.csv"
+        "${GXBASE}/sea_src/bin/iono_update.py" --ionocsv "${obsid}_ionodiff.csv"
     fi
 fi
 
@@ -235,7 +235,7 @@ test_fail $?
 # This also sets the cross-terms to zero by default, unless --preserve_xterms
 # phase added (degrees) = xy + dxy × frequency (in Hz)
 # why -2.806338586067941065e+01 and -4.426533296449057023e-07?
-aocal_phaseref.py "${solutions}" "${solutions%.bin}_ref.bin" "${refant}" --xy -2.806338586067941065e+01 --dxy -4.426533296449057023e-07  --ms "${obsid}.ms"
+"${GXBASE}/sea_src/bin/aocal_phaseref.py" "${solutions}" "${solutions%.bin}_ref.bin" "${refant}" --xy -2.806338586067941065e+01 --dxy -4.426533296449057023e-07  --ms "${obsid}.ms"
 test_fail $?
 
 # plot calibration solutions
@@ -250,7 +250,7 @@ test_fail $?
 
 # Test to see if the calibration solution meets minimum quality control. At the moment
 # this is a simple check based on the number of flagged solutions
-result=$(check_assign_solutions.py -t "${fraction}" check "${solutions%.bin}_ref.bin")
+result=$("${GXBASE}/sea_src/bin/check_assign_solutions.py" -t "${fraction}" check "${solutions%.bin}_ref.bin")
 if echo "${result}" | grep -q fail; then
     mv "${solutions%.bin}_ref.bin" "${solutions%.bin}_ref_failed.bin"
     test_fail 1
@@ -264,5 +264,5 @@ if [[ -n "${ramcopy}" ]]; then
 fi
 
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
 fi

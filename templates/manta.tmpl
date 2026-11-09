@@ -24,7 +24,7 @@ obsid_array=$(awk '{print substr($1,8,10)}' < "${obsinp}_manta.tmp") # extract o
 
 if [[ "${GXTRACK}" == "track" ]]; then
     for i in $(seq 1 "${#obsid_array[@]}"); do
-        track_task.py start --jobid="${SLURM_JOBID}" --taskid=${i} --start_time="$(date +%s)"
+        "${GXBASE}/sea_src/bin/track_task.py" start --jobid="${SLURM_JOBID}" --taskid=${i} --start_time="$(date +%s)"
     done
 fi
 
@@ -69,7 +69,7 @@ for obsid in $obsid_array; do
     if [[ "${#job_folders[@]}" -ne 1 ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # Expected exactly one folder <jobid>/${obsid}.ms in ${project_dir}, but found ${#job_folders[@]}: ${job_folders[*]}"
         if [[ "${GXTRACK}" == "track" ]]; then
-            track_task.py fail --jobid="${SLURM_JOBID}" --taskid="${n}" --finish_time="$(date +%s)"
+            "${GXBASE}/sea_src/bin/track_task.py" fail --jobid="${SLURM_JOBID}" --taskid="${n}" --finish_time="$(date +%s)"
         fi
         exit 1
     elif [[ -e "${project_dir}/${obsid}" ]]; then

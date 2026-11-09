@@ -20,7 +20,7 @@ read -r obsid flags <<< "${line}"     # the first word goes into obsid, the rest
 
 # start
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py start --jobid=${jobid} --taskid=${taskid} --start_time=`date +%s`
+    "${GXBASE}/sea_src/bin/track_task.py" start --jobid=${jobid} --taskid=${taskid} --start_time=`date +%s`
 fi
 
 cd "${project_dir}/${obsid}" || exit 1
@@ -37,6 +37,5 @@ else
 fi
 
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py finish --jobid=${jobid} --taskid=${taskid} --finish_time=`date +%s`
+    "${GXBASE}/sea_src/bin/track_task.py" finish --jobid=${jobid} --taskid=${taskid} --finish_time=`date +%s`
 fi
-

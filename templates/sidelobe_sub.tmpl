@@ -30,7 +30,7 @@ fi
 test_fail() {
     if [[ $1 != 0 ]]; then
         if [[ "${GXTRACK}" == "track" ]]; then
-            track_task.py fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+            "${GXBASE}/sea_src/bin/track_task.py" fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
         fi
         exit "$1"
     fi
@@ -45,7 +45,7 @@ tsigma=1
 
 # Update database
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
 fi
 
 data_dir="${project_dir}/${obsid}"
@@ -84,10 +84,10 @@ elif [[ $obsid -ge 1191580576 ]] ; then
 fi
 
 # Set up channel-dependent options
-chan="$(pyhead.py -p CENTCHAN ${metafits} | awk '{print $3}')"
-bandwidth="$(pyhead.py -p BANDWDTH ${metafits} | awk '{print $3}')"
-centfreq="$(pyhead.py -p FREQCENT ${metafits} | awk '{print $3}')"
-chans="$(pyhead.py -p CHANNELS ${metafits} | awk '{print $3}' | sed 's/,/ /g')"
+chan="$("${GXBASE}/sea_src/bin/pyhead.py" -p CENTCHAN "${metafits}" | awk '{print $3}')"
+bandwidth="$("${GXBASE}/sea_src/bin/pyhead.py" -p BANDWDTH "${metafits}" | awk '{print $3}')"
+centfreq="$("${GXBASE}/sea_src/bin/pyhead.py" -p FREQCENT "${metafits}" | awk '{print $3}')"
+chans="$("${GXBASE}/sea_src/bin/pyhead.py" -p CHANNELS "${metafits}" | awk '{print $3}' | sed 's/,/ /g')"
 chans=("${chans}")
 
 # Pixel scale
@@ -111,13 +111,13 @@ maxuvm="$(echo "390000 / (${chan} + 11)" | bc -l)"
 multiscale="-multiscale -mgain 0.85 -multiscale-gain 0.15"
 
 # Checking if there is a gross sidelobe: 
-get_mwa_pb_lobes.py "${metafits}" -mS > "${obsid}_beamlobes.txt"
+"${GXBASE}/sea_src/bin/get_mwa_pb_lobes.py" "${metafits}" -mS > "${obsid}_beamlobes.txt"
 if [[ "$(cat ${obsid}_beamlobes.txt | wc -l )" -eq 1 ]]; then 
     ra_sidelobe="$(cat ${obsid}_beamlobes.txt | awk '{print $2}')"
     dec_sidelobe="$(cat ${obsid}_beamlobes.txt | awk '{print $3}')"
     fov_beam="$(cat ${obsid}_beamlobes.txt | awk '{print $4}')"
 
-    radec_lobe="$(dd_hms_dms.py ${ra_sidelobe} ${dec_sidelobe} -d "hms")"
+    radec_lobe=$("${GXBASE}/sea_src/bin/dd_hms_dms.py" ${ra_sidelobe} ${dec_sidelobe} -d "hms")
     lobe_image_size="$(echo "1.2*${fov_beam}/${scale}" | bc -l)"
     lobe_image_size="${lobe_image_size%.*}"
 else
@@ -158,7 +158,7 @@ if [[ -f "${obsid}_sidelobe-MFS-XX-image.fits" ]]; then
     taql alter table "${ms}" drop column MODEL_DATA
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Have subtracted the model column from the ${datacolumn}, now to change back to original pointing and cleanup"
 
-    coords=$(calc_pointing.py "${metafits}")
+    coords=$("${GXBASE}/sea_src/bin/calc_pointing.py" "${metafits}")
     chgcentre "${ms}" "${coords}"
     chgcentre -zenith -shiftback "${ms}"
 else 
@@ -173,5 +173,5 @@ if [[ -n "${ramcopy}" ]]; then
 fi
 
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
 fi

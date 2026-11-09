@@ -26,14 +26,14 @@ fi
 test_fail() {
     if [[ $1 != 0 ]]; then
         if [[ "${GXTRACK}" == "track" ]]; then
-            track_task.py fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+            "${GXBASE}/sea_src/bin/track_task.py" fail --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
         fi
         exit "$1"
     fi
 }
 
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" start --jobid="${jobid}" --taskid="${taskid}" --start_time="$(date +%s)"
 fi
 
 cd "${project_dir}/${obsid}" || exit 1
@@ -45,6 +45,6 @@ cd "${project_dir}/${obsid}" || exit 1
 test_fail $?
 
 if [[ "${GXTRACK}" == "track" ]]; then
-    track_task.py finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
-    track_task.py obs_status --obs_id="${obsid}" --status='flagged'
+    "${GXBASE}/sea_src/bin/track_task.py" finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"
+    "${GXBASE}/sea_src/bin/track_task.py" obs_status --obs_id="${obsid}" --status='flagged'
 fi
