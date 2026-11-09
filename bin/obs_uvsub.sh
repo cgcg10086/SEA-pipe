@@ -58,8 +58,8 @@ sanity_checks() {
     else
         std_logs="${GXLOG}/submission_logs/obs_uvsub_$(date +%Y%m%d_%H%M%S).log"
     fi
-    if [[ ! -d "$(dirname '${std_logs}')" ]]; then
-        mkdir -p "$(dirname '${std_logs}')"
+    if [[ ! -d "$(dirname "${std_logs}")" ]]; then
+        mkdir -p "$(dirname "${std_logs}")"
     fi
     # Redirect stdout and stderr to both the log and the terminal
     exec > >(tee -a "${std_logs}") 2> >(tee -a "${std_logs}" >&2)

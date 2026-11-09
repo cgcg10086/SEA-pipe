@@ -121,8 +121,8 @@ sanity_checks() {
     std_logs="${GXLOG}/submission_logs/auto_process_$(date +%Y%m%d_%H%M%S).log"
     echo -e "${BLD}${BCYN}$(date '+%Y-%m-%d %H:%M:%S') # INFO #${RST} Logs will be stored in ${std_logs}."
     export TEMP_LOG_FILE="${std_logs//'auto_process'/'tmp'}" # The job scripts will use this log file to write their logs.
-    if [[ ! -d "$(dirname '${std_logs}')" ]]; then
-        mkdir -p "$(dirname '${std_logs}')"
+    if [[ ! -d "$(dirname "${std_logs}")" ]]; then
+        mkdir -p "$(dirname "${std_logs}")"
     fi
     # Redirect stdout and stderr to both the log and the terminal
     exec > >(tee -a "${std_logs}") 2> >(tee -a "${std_logs}" >&2)
@@ -272,7 +272,7 @@ process_obsids() {
         if [[ -n "${transient}" ]]; then
             call_submission_script "obs_transient.sh" "${ramcopy}" "${debug}" || return $?
 
-            call_submission_script "obs_tfilter.sh" || return $?
+            # call_submission_script "obs_tfilter.sh" || return $?
         fi
 
         if [[ -n "${test}" ]] || ! [[ "${jobid}" =~ ^[0-9]+$ ]]; then

@@ -38,8 +38,10 @@ fi
 
 cd "${project_dir}/${obsid}" || exit 1
 
-# ms_flag_by_uvdist.py "${obsid}.ms" "${column}" -a # need to rebuild container to use the updated ms_flag_by_uvdist.py 
+# ms_flag_by_uvdist.py: # Flag individual tile pairs (baselines) whose average calibrated amplitude > 3 sigma from other pairs of similar length (within 5000 m); a flagged pair is flagged for the whole observation.
 "${GXBASE}/sea_src/bin/ms_flag_by_uvdist.py" "${obsid}.ms" "${column}" -a # fixed ms_flag_by_uvdist.py but haven't rebuild container 
+# ms_flag_by_uvdist.py "${obsid}.ms" "${column}" -a # need to rebuild container to use the updated ms_flag_by_uvdist.py 
+
 test_fail $?
 
 if [[ "${GXTRACK}" == "track" ]]; then
