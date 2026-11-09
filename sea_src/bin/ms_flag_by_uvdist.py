@@ -41,7 +41,8 @@ class MeasurementSet:
         mset = self.filtered
 
         antenna_table = table(self.name + "/ANTENNA", readonly=True, ack=False)
-        self.antennas = list(set(mset.getcol("ANTENNA1")))
+        # self.antennas = list(set(mset.getcol("ANTENNA1")))
+        self.antennas = sorted(set(mset.getcol("ANTENNA1")) | set(mset.getcol("ANTENNA2")))
         self.nbaselines = int(len(self.antennas) * (len(self.antennas) - 1) / 2)
         self.baselines = []
         self.station_names = {}
@@ -221,7 +222,7 @@ def main():
         "--window",
         type=float,
         default=5000,
-        help="sliding window used for searching, in number of baselines",
+        help="sliding window used for searching, in metres of baseline length",
     )  # fullish range
     ps.add_argument(
         "-a",

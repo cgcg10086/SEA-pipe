@@ -38,9 +38,9 @@ test_fail() {
 }
 
 # WSClean suffixes for subchannels and MFS
-subchans="MFS 0000 0001 0002 0003"
+# subchans="MFS 0000 0001 0002 0003"
 # Minimum uvw for self-calibration (in lambda)
-minuv=75
+# minuv=75
 # S/N Level at which to choose masked pixels for deepclean
 msigma=5
 # S/N Threshold at which to stop cleaning
@@ -93,34 +93,39 @@ fi
 # fi
 
 # keep the same setting for NIGHT 
-telescope="MWALB" # never used? 
-basescale=0.6 
-imsize=8000 
+# telescope="MWALB" # for some other templates. 
+basescale=0.6  
+imsize=8000     # FOV / pixel size
 
 
 # Set up channel-dependent options
 chan="$(pyhead.py -p CENTCHAN ${metafits} | awk '{print $3}')"
-bandwidth="$(pyhead.py -p BANDWDTH ${metafits} | awk '{print $3}')"
-centfreq="$(pyhead.py -p FREQCENT ${metafits} | awk '{print $3}')"
-chans="$(pyhead.py -p CHANNELS ${metafits} | awk '{print $3}' | sed 's/,/ /g')"
-chans=($chans)
+# bandwidth="$(pyhead.py -p BANDWDTH ${metafits} | awk '{print $3}')"
+# centfreq="$(pyhead.py -p FREQCENT ${metafits} | awk '{print $3}')"
+# chans="$(pyhead.py -p CHANNELS ${metafits} | awk '{print $3}' | sed 's/,/ /g')"
+# chans=($chans)
 
 # Pixel scale
 # At least 4 pix per synth beam for each channel
-scale=$(echo "$basescale / $chan" | bc -l)
+scale=$(echo "$basescale / $chan" | bc -l) # pixel size in degree
+# Bash cannot do decimal arithmetic, 6/157 gives 0 -- so uses bc, a command-line calculator.
+# -l: bc’s math library, sets 20 decimal places. 
+# beam ≈ λ / B_max (in radians). lambda = 
 
-# Naming convention for output files
-lowfreq=$(echo "${centfreq}" "${bandwidth}" | awk '{printf("%00d\n",$1-($2/2.)+0.5)}')
-highfreq=$(echo "$centfreq $bandwidth" | awk '{printf("%00d\n",$1+($2/2.)+0.5)}')
-freqrange="${lowfreq}-${highfreq}"
+
+# # Naming convention for output files
+# lowfreq=$(echo "${centfreq}" "${bandwidth}" | awk '{printf("%00d\n",$1-($2/2.)+0.5)}')
+# highfreq=$(echo "$centfreq $bandwidth" | awk '{printf("%00d\n",$1+($2/2.)+0.5)}')
+# freqrange="${lowfreq}-${highfreq}"
 
 # Calculate min uvw in metres
-minuvm=$(echo "234 * $minuv / $chan" | bc -l)
+# minuvm=$(echo "234 * $minuv / $chan" | bc -l)
 
-# Found that multiscale cleaning recovers flux density in the extragalactic sky better than not, and doesn't add much to processing time.
-# multiscale="-multiscale -mgain 0.85 -multiscale-gain 0.15" # If you really want to use multiscale.
-multiscale=(-multiscale -mgain 0.85 -multiscale-gain 0.15) # If you really want to use multiscale. Use array to avoid word splitting issues in bash.
-# multiscale=(-mgain 0.85) # For transient searches, we can be off with not using multiscale.
+# Confirmed that multiscale cleaning recovers flux density in the extragalactic sky better than not, and doesn't add much to processing time.
+# Use array to avoid word splitting issues in bash 
+# gcchen has confirmed: -multiscale models extended sources better (model has 1+ Gaussian lobes with -multiscale; VS scattered single pixels without)
+multiscale=(-multiscale -mgain 0.85 -multiscale-gain 0.15) # If you really want to use multiscale. 
+# multiscale=(-mgain 0.85) # multiscale disabled 
 
 if [[ -n "${ramcopy}" ]]; then
     mkdir -p "${tmpdir}"
@@ -149,7 +154,7 @@ fi
 #     scalebias=(-multiscale-scale-bias 0.6)
 # fi 
 
-scalebias=(-multiscale-scale-bias 0.6) # NIGHT will avoid galactic plane and VirA, so we can use the default scale bias for multiscale cleaning.
+scalebias=(-multiscale-scale-bias 0.6) # NIGHT will avoid galactic plane and VirA, so use the default scale bias for multiscale cleaning.
 
 # Replace Zenith projection with wgrider. Leave imaging centred on the existing MS phase centre 
 # Check whether the phase centre has already changed
@@ -169,7 +174,10 @@ scalebias=(-multiscale-scale-bias 0.6) # NIGHT will avoid galactic plane and Vir
 #     chgcentre -zenith -shiftback "${ms}" # WSClean 3.7 requires -shift RA DEC
 # fi
 
-# # Create a template image that has all the same properties as our eventual WSClean image
+# Create a template image that has all the same properties as our eventual WSClean image
+# The data in the template do not matter. Only its header does: the image size, pixel scale, centre and projection.
+# template image is only a ruler for the grid;
+# -niter 0 means no cleaning at all: WSClean only grids the data and makes a dirty image.
 # if [[ ! -f "${obsid}_template.fits" ]]; then
 #     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Creating template image for ${obsid}."
 #     wsclean \
@@ -178,11 +186,11 @@ scalebias=(-multiscale-scale-bias 0.6) # NIGHT will avoid galactic plane and Vir
 #         -nmiter 1 \
 #         -niter 0 \
 #         -name "${obsid}_template" \
-#         -size "${imsize}" "${imsize}" \
-#         -scale "${scale:0:8}" \
+#         -size "${imsize}" "${imsize}" \ # Use the same grid as the deep clean, so the beam later matches pixel for pixel.
+#         -scale "${scale:0:8}" \ # images one polarisation only, the cheapest, because the pixel values do not matter.
 #         -pol XX \
 #         -data-column "${datacolumn}" \
-#         -channel-range 4 5 \
+#         -channel-range 4 5 \ # use only channels 4 to 5 and timesteps 4 to 5, so the image is made quickly.
 #         -interval 4 5 \
 #         -nwlayers "${IMNCPUS}" \
 #         "${ms}"
@@ -193,19 +201,25 @@ scalebias=(-multiscale-scale-bias 0.6) # NIGHT will avoid galactic plane and Vir
 #     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # Using existing template image for ${obsid}."
 # fi
 
+# Part 2: the sub-band beams
 # NIGHT does not need primary beam correction, so we don't need to create the sub-band beams.
 # # Hardcoding John's PB script location for now
 # # Also hardcoding creating four sub-band beams
-# pols="XX XXi XY XYi YX YXi YY YYi"
+# pols="XX XXi XY XYi YX YXi YY YYi" # The beam is a 2×2 complex matrix per pixel (XX, XY, YX, YY). Each complex element is stored as two real images: the real part (XX) and the imaginary part (XXi). That is 8 files per sub-band.
 
+# A loop over the four sub-bands, n = 0 to 3. This matches -channels-out 4 and WSClean’s file names -0000- to -0003-
 # for n in {0..3}; do
-#     i=$((n * 6))
-#     cstart=${chans[$i]}
+#     i=$((n * 6))          # The observation has 24 coarse channels, so each sub-band has 6. chans holds the 24 channel numbers from the metafits.
+#     cstart=${chans[$i]}   # index of the first of the six (0, 6, 12, 18)
 #     j=$((i + 5))
 #     cend=${chans[$j]}
 #     for pol in $pols; do 
 #         if [[ ! -f "${obsid}_000${n}-${pol}-beam.fits" ]]; then
 #             lookup_jones.py ${obsid} _template.fits ${obsid}_000${n}- -c $cstart-$cend --wsclean_names
+            # lookup_jones.py: look up the MWA beam from a lookup table at each pixel’s altitude and azimuth.  
+            # first two arguments: input image. The metafits gives the pointing. 
+            # -c averages the beams over those coarse channels, with half weight at the edges. 
+            # The prefix ${obsid}_000${n}- gives output names like <obsid>_0000-XX-beam.fits. 
 #         fi
 #         ln -s "${obsid}_000${n}-${pol}-beam.fits" "${obsid}_deep-000${n}-beam-${pol}.fits"
 #     done
@@ -239,9 +253,10 @@ wsclean \
     -data-column "${datacolumn}" \
     "${ms}" | tee wsclean.log
      
+    # wsclean 3.7: -minuv-l in lambda; -minuvw-m in meters.
     # -mwapath ${GXMWAPB} \ # For calculating the primary beam on-the-fly. Replace --reuse-primary-beam with this if you encounter errors with "the primary beam not found" by lookup_jones.py.
     # -reuse-primary-beam \
-    # -apply-primary-beam \
+    # -apply-primary-beam \ # WSClean can divide the image by the primary beam. It needs the beam as FITS images on exactly the same pixel grid as the final image. The template image is only a ruler for the grid;
 test_fail $?
 
 # Move back the measurement set to the original location if we copied it to RAM
