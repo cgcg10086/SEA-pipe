@@ -40,6 +40,8 @@ mwa_client "${mwa_client_args[@]}" \
     --dir="${project_dir}"
 
 n=1
+downloaded_obsids=()     # obsids whose folder is now in <project>/<obsid>
+failed_obsids=()        # obsids that could not be put there (for example, ASVO skipped the job)
 for obsid in $obsid_array; do
     # The mwa_client will download and untar the data in ${project_dir}/${jobid}/${obsid}.ms, where jobid is the ASVO jobid.
     # Move the data to ${project_dir}/${obsid}/${obsid}.ms to be consistent with the previous download method.
@@ -66,19 +68,40 @@ for obsid in $obsid_array; do
         fi
     done
 
-    if [[ "${#job_folders[@]}" -ne 1 ]]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # Expected exactly one folder <jobid>/${obsid}.ms in ${project_dir}, but found ${#job_folders[@]}: ${job_folders[*]}"
+    if [[ "${#job_folders[@]}" -eq 0 ]] && [[ -d "${project_dir}/${obsid}/${obsid}.ms" ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # ${obsid} is already in ${project_dir}/${obsid}."
+        downloaded_obsids+=("${obsid}")
+    elif [[ "${#job_folders[@]}" -eq 0 ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') # WARNING # No folder <jobid>/${obsid}.ms in ${project_dir}, so ${obsid} was not downloaded (for example, ASVO skipped the job). Carrying on with the next obsid."
+        failed_obsids+=("${obsid}")
         if [[ "${GXTRACK}" == "track" ]]; then
             "${GXBASE}/sea_src/bin/track_task.py" fail --jobid="${SLURM_JOBID}" --taskid="${n}" --finish_time="$(date +%s)"
         fi
-        exit 1
+    elif [[ "${#job_folders[@]}" -gt 1 ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') # WARNING # Found ${#job_folders[@]} folders <jobid>/${obsid}.ms in ${project_dir}: ${job_folders[*]}. I cannot tell which one to use, so ${obsid} was NOT renamed. Carrying on with the next obsid."
+        failed_obsids+=("${obsid}")
     elif [[ -e "${project_dir}/${obsid}" ]]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # ${project_dir}/${obsid} already exists, so ${job_folders[0]} was NOT renamed. Move that folder away, then run: mv ${job_folders[0]} ${project_dir}/${obsid}"
-        exit 1
+        echo "$(date '+%Y-%m-%d %H:%M:%S') # WARNING # ${project_dir}/${obsid} already exists, so ${job_folders[0]} was NOT renamed. Move that folder away, then run: mv ${job_folders[0]} ${project_dir}/${obsid}"
+        failed_obsids+=("${obsid}")
     else
         mv "${job_folders[0]}" "${project_dir}/${obsid}"
+        basename "${job_folders[0]}" > "${project_dir}/${obsid}/${obsid}_asvo_jobid.txt"     # remember which ASVO job this came from
+        downloaded_obsids+=("${obsid}")
     fi
 
 
     ((n+=1))
 done
+
+# Keep two lists, so that the next steps can be run on what exists
+: > "${obsinp}_downloaded.txt"
+for obsid in "${downloaded_obsids[@]}"; do echo "${obsid}" >> "${obsinp}_downloaded.txt"; done
+: > "${obsinp}_not_downloaded.txt"
+for obsid in "${failed_obsids[@]}"; do echo "${obsid}" >> "${obsinp}_not_downloaded.txt"; done
+echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # ${#downloaded_obsids[@]} observation(s) are in place (list: ${obsinp}_downloaded.txt); ${#failed_obsids[@]} are not (list: ${obsinp}_not_downloaded.txt): ${failed_obsids[*]}"
+
+# Only fail the job if there is nothing at all to process
+if [[ "${#downloaded_obsids[@]}" -eq 0 ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # None of the observations could be put in place, so there is nothing to process."
+    exit 1
+fi

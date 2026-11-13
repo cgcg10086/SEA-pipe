@@ -83,11 +83,12 @@ chan="$("${GXBASE}/sea_src/bin/pyhead.py" -p CENTCHAN "${metafits}" | awk '{prin
 
 # Settings to support transient imaging / cleaning
 niter=12000
-size=2400
+size=3300    # slightly increase image size to include more of the primary beam 
 taper=2amin
 auto_threshold=3
-minuv_l=50 # use 40 to be consistent with imaging? 
+minuv_l=50            # use 40 to be consistent with imaging? 
 taper_inner_tukey=50 # use 400 to be consistent with imaging? 
+robust=0.5.           # more Natrual weighting makes use of all information in the uv-plane to reduce RMS noise.
 
 # Pixel scale
 # At least 2 pix per synth beam for each channel
@@ -104,7 +105,7 @@ else
     ms="${obsid}.ms"
 fi
 
-# # Skipping first and last 8 seconds
+# # Skipping first and last 8 seconds since some receievers are not ready and therefore image is more noisy 
 # interval_start=$((8/timeres))
 # ninterval=$(taql "calc count([select distinct(TIME) from ${ms}])")
 # interval_stop=$((ninterval-interval_start))
@@ -219,7 +220,7 @@ test_fail $?
 # test_fail $?
 
 # Save the flags
-taql "select ctod(TIME), gsum(ntrue(amplitude(DATA[,::3])==0.0)), gsum(ntrue(FLAG[,::3])), gmean(WEIGHT_SPECTRUM[,::3]) from ${ms} where ANTENNA1 != ANTENNA2 groupby TIME" > "${obsid}_summary.txt"
+taql -m 1000 "select ctod(TIME), gsum(ntrue(amplitude(DATA[,::3])==0.0)), gsum(ntrue(FLAG[,::3])), gmean(WEIGHT_SPECTRUM[,::3]) from ${ms} where ANTENNA1 != ANTENNA2 groupby TIME" > "${obsid}_summary.txt"
 
 # Move back the measurement set to the original location if we copied it to RAM
 if [[ -n "${ramcopy}" ]]; then
