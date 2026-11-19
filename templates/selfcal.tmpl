@@ -58,7 +58,10 @@ fi
 
 if [[ -n "${ramcopy}" ]]; then
     mkdir -p "${tmpdir}"
+    test_fail $?
     cp -r "${obsid}.ms" "${tmpdir}/"
+    test_fail $?
+    echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # RAM copy completed: ${tmpdir}/${obsid}.ms"
     ms="${tmpdir}/${obsid}.ms"
 else
     ms="${obsid}.ms"

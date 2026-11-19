@@ -83,12 +83,12 @@ chan="$("${GXBASE}/sea_src/bin/pyhead.py" -p CENTCHAN "${metafits}" | awk '{prin
 
 # Settings to support transient imaging / cleaning
 niter=12000
-size=3300    # slightly increase image size to include more of the primary beam 
+size=3200  # slightly increase image size to include more of the primary beam. hdf5 requires image size divisible by 16.
 taper=2amin
 auto_threshold=3
 minuv_l=50            # use 40 to be consistent with imaging? 
 taper_inner_tukey=50 # use 400 to be consistent with imaging? 
-robust=0.5.           # more Natrual weighting makes use of all information in the uv-plane to reduce RMS noise.
+robust=0.5           # more Natrual weighting (closer to 1) makes use of more information in the uv-plane to reduce RMS noise.
 
 # Pixel scale
 # At least 2 pix per synth beam for each channel
@@ -99,7 +99,10 @@ scale=$(echo "${basescale} / ${chan} * 2" | bc -l)
 
 if [[ -n "${ramcopy}" ]]; then
     mkdir -p "${tmpdir}"
+    test_fail $?
     cp -r "${obsid}.ms" "${tmpdir}/"
+    test_fail $?
+    echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # RAM copy completed: ${tmpdir}/${obsid}.ms"
     ms="${tmpdir}/${obsid}.ms"
 else
     ms="${obsid}.ms"
@@ -138,6 +141,7 @@ intervals_out="${ninterval}"
 # -no-update-model-required	Do not overwrite MODEL_DATA, so the model stays intact
 # Use the time steps from start up to but not including stop, and make N separate images 
 if [[ "$(ls "${obsid}"_transient-t????-image.fits 2>/dev/null | wc -l)" -ne $intervals_out ]]; then
+    # makes one image per time step 
     wsclean \
         -name "${obsid}_transient" \
         -gridder wgridder \
@@ -211,13 +215,16 @@ fi
 
 # test_fail $?
 
-# Make a cube and a standard deviation image
+# stacks the image frame into a cube and a standard deviation image
+# cube coordinates: (time, y, x)
 "${GXBASE}/sea_src/bin/make_time_cube.py" "${obsid}"_transient    
 test_fail $?
 
-# Dump the image and model files into a hdf5 container
-# "${GXBASE}/sea_src/bin/make_imstack.py" --start 0 -n "${intervals_out}" "${obsid}_transient"
-# test_fail $?
+# stack the image and the model frames into a hdf5 container
+# Use all the frames 
+# Note: make_imstack.py requires image_size % stamp_size == 0, default stamp is 16. So image size must be devidable by 16. 
+"${GXBASE}/sea_src/bin/make_imstack.py" --start 0 -n "${intervals_out}" "${obsid}_transient"
+test_fail $?
 
 # Save the flags
 taql -m 1000 "select ctod(TIME), gsum(ntrue(amplitude(DATA[,::3])==0.0)), gsum(ntrue(FLAG[,::3])), gmean(WEIGHT_SPECTRUM[,::3]) from ${ms} where ANTENNA1 != ANTENNA2 groupby TIME" > "${obsid}_summary.txt"
@@ -230,7 +237,7 @@ if [[ -n "${ramcopy}" ]]; then
 fi
 
 # Clean up
-rm "${obsid}"_transient-t????-*.fits
+rm "${obsid}"_transient-t????-*.fits # used to make hdf5
 # rm "${obsid}_transient_concatenated_table.fits"
 
 if [[ "${GXTRACK}" == "track" ]]; then
