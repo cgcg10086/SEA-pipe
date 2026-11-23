@@ -130,8 +130,48 @@ multiscale=(-multiscale -mgain 0.85 -multiscale-gain 0.15) # If you really want 
 if [[ -n "${ramcopy}" ]]; then
     mkdir -p "${tmpdir}"
     test_fail $?
+
+    # ram copy fail test 
+    # mkdir -p "${tmpdir}/${obsid}.ms"
+    # echo "test partial copy" > "${tmpdir}/${obsid}.ms/test-file"
+    # false
+
     cp -r "${obsid}.ms" "${tmpdir}/"
-    test_fail $?
+    copy_status=$?
+    # test_fail $?        # sometimes ram is full and the copy fails. 
+    # when ram copy failed, remove the partial copy, log the error, and exit the script.
+    if [[ ${copy_status} != 0 ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # RAM copy failed: ${tmpdir}/${obsid}.ms" >&2
+        {
+            echo "Copy exit status: ${copy_status}; node: $(hostname); Slurm memory per node (MiB): ${SLURM_MEM_PER_NODE:-not set}"
+            echo "Destination filesystem:"
+            findmnt -T "${tmpdir}"
+            echo "Destination filesystem space:"
+            df -h "${tmpdir}"
+            echo "Destination filesystem inodes:"
+            df -i "${tmpdir}"
+            echo "Node memory (not necessarily the job's memory limit):"
+            free -h
+            echo "Source measurement set disk usage:"
+            du -sh "${obsid}.ms"
+            if [[ -e "${tmpdir}/${obsid}.ms" ]]; then
+                echo "Partial copy disk usage:"
+                du -sh "${tmpdir}/${obsid}.ms"
+            else
+                echo "No partial copy exists at ${tmpdir}/${obsid}.ms"
+            fi
+        } >&2
+        rm -rf -- "${tmpdir}/${obsid}.ms" 
+        remove_status=$?
+
+        if [[ ${remove_status} != 0 ]]; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # RAM copy failed and could not remove ${tmpdir}/${obsid}.ms" >&2
+            echo ""
+        fi
+
+        test_fail ${copy_status}   # stop before the next processing step. 
+    fi
+
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # RAM copy completed: ${tmpdir}/${obsid}.ms"
     ms="${tmpdir}/${obsid}.ms"
 else
@@ -231,13 +271,14 @@ scalebias=(-multiscale-scale-bias 0.6) # NIGHT will avoid galactic plane and Vir
 # Set the pipefail so the test_fail does not test for tee
 set -o pipefail
 # Deep clean (for pipeline)
+# image parameter test log
 wsclean \
     -gridder wgridder \
     -abs-mem "${PROGMEMORY}" \
     "${multiscale[@]}" \
     "${scalebias[@]}" \
     -nmiter 3 \
-    -niter 100000 \
+    -niter 1000000 \
     -auto-mask "${msigma}" \
     -auto-threshold "${tsigma}" \
     -name "${obsid}_deep" \
@@ -264,7 +305,7 @@ test_fail $?
 
 # Move back the measurement set to the original location if we copied it to RAM
 if [[ -n "${ramcopy}" ]]; then
-    rm -rf "${data_dir}/${obsid}.ms"
+    rm -rf "${data_dir}/${obsid}.ms"  # Remove the original measurement set first to avoid creating nested measurement sets.
     mv "${ms}" "${data_dir}/"
     rm -rf "${tmpdir}"
 fi

@@ -39,6 +39,8 @@ fi
 
 cd "${project_dir}/${obsid}" || exit
 
+rm -f "${obsid}_calibration_applied.txt" || test_fail $?
+
 metafits="${obsid}.metafits"
 if [[ ! -f "${metafits}" ]] || [[ ! -s "${metafits}" ]]; then
     wget -O "${metafits}" "http://ws.mwatelescope.org/metadata/fits?obs_id=${obsid}"
@@ -109,6 +111,8 @@ fi
 # applysolutions "${nocopy}" "${obsid}.ms" "${calfile}"
 
 test_fail $?
+
+touch "${obsid}_calibration_applied.txt" || test_fail $?
 
 if [[ "${GXTRACK}" == "track" ]]; then
     "${GXBASE}/sea_src/bin/track_task.py" finish --jobid="${jobid}" --taskid="${taskid}" --finish_time="$(date +%s)"

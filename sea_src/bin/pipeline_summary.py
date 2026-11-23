@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 """
-Where is every observation of a list in the pipeline, and what has to be done next?
-
-It looks at the files that each step leaves behind (not at the SLURM logs), so it can be run at any time, on 10 or 1000 observations.
-It only reads. It never changes your data. It needs nothing but Python 3.6 or newer, so it runs on the login node without the container.
-
-usage:
-    python3 pipeline_summary.py <project_dir> <obs_list> [--tiles <tile_list>] [--max-tile N]
+python3 pipeline_summary.py <project_dir> <obs_list> [--tiles <tile_list>] [--max-tile N]
 
     <tile_list> is your manual flag list: one line per observation, the obsid and then the tiles to flag, separated by spaces.
     An observation that you looked at and that needs no extra tile:    1444763232   none
@@ -41,6 +35,12 @@ Every observation is in exactly one of them, so the lists add up to the whole ob
     warnings.txt        things that do not block but are worth a look
     summary.txt         the counts (also printed)
 and one line is added to <project_dir>/summary_history.log
+
+The summary folder also has overlapping per-step lists:
+    obs_list_<step>_finished.txt      the step's success condition is present
+    obs_list_<step>_not_finished.txt  the success condition is not present (not necessarily a job failure)
+Steps are download, autocal, flags, applycal, uvflag, image, and transient. These lists are rebuilt on every run.
+For applycal and uvflag, older runs without marker files are checked against matching SLURM task logs.
 
 The actions, in the order they are checked:
     download            no folder, or no measurement set
@@ -81,6 +81,17 @@ STATES = [
     ("uvflagged", "image"),
     ("imaged", "cube"),
     ("cube", "nothing, done"),
+]
+
+# The row field and values that mean a step has succeeded. Any other value is not finished.
+STEP_SUCCESS = [
+    ("download", "download", {"ok"}),
+    ("autocal", "autocal", {"ok"}),
+    ("flags", "flags", {"ok", "none_needed", "recorded"}),
+    ("applycal", "apply", {"applied"}),
+    ("uvflag", "uvflag", {"done"}),
+    ("image", "image", {"ok"}),
+    ("transient", "cube", {"ok"}),
 ]
 
 TABLE_COLUMNS = [
@@ -155,6 +166,49 @@ def read_text_or_empty(path):
     return ""
 
 
+def legacy_step_results(project_dir):
+    """Read successful applycal and uvflag runs from logs written before marker files existed."""
+    gxlog = os.environ.get("GXLOG")
+    if not gxlog:
+        return {}
+    log_dir = Path(gxlog) / "slurm_logs"
+    if not log_dir.is_dir():
+        return {}
+
+    log_patterns = [
+        ("applycal", "apply_cal_*.e*", re.compile(r"^\+\s+applysolutions(?:\s|$)")),
+        ("uvflag", "uvflag_*.e*", re.compile(r"^\+\s+.*ms_flag_by_uvdist\.py(?:\s|$)")),
+    ]
+    project_dir = project_dir.resolve()
+    latest = {}
+
+    for step, pattern, command_pattern in log_patterns:
+        for log_path in log_dir.glob(pattern):
+            text = log_path.read_text(errors="replace")
+            logged_project = re.search(r"^\+\s+project_dir=(.+)$", text, re.MULTILINE)
+            logged_obsid = re.search(r"^\+\s+obsid=(\d+)$", text, re.MULTILINE)
+            if logged_project is None or logged_obsid is None:
+                continue
+            if Path(logged_project.group(1)).resolve() != project_dir:
+                continue
+
+            lines = text.splitlines()
+            command_line = next(
+                (index for index, line in enumerate(lines) if command_pattern.search(line)),
+                None,
+            )
+            succeeded = command_line is not None and any(
+                re.match(r"^\+\s+test_fail 0(?:\s|$)", line)
+                for line in lines[command_line + 1:]
+            )
+            key = (logged_obsid.group(1), step)
+            modified_at = log_path.stat().st_mtime
+            if key not in latest or modified_at > latest[key][0]:
+                latest[key] = (modified_at, succeeded)
+
+    return {key: succeeded for key, (modified_at, succeeded) in latest.items()}
+
+
 # ------------------------------------------------------------------------------------------------------------------
 # One function per step. Each one looks at the files of one observation and returns what it found.
 # ------------------------------------------------------------------------------------------------------------------
@@ -180,6 +234,8 @@ def check_flags(obsid, record, tile_list):
         recorded = whole_numbers(record.read_text())
 
     if tile_list is None:
+        if record.exists():
+            return "recorded", len(recorded), [], []
         return "not_checked", len(recorded), [], []
 
     lines = tile_list.get(obsid, [])
@@ -253,14 +309,14 @@ def number_of_frames(cube):
     return ""
 
 
-def check_later_steps(folder, obsid):
+def check_later_steps(folder, obsid, legacy_results):
     """The later steps leave one product each."""
     apply = "not_applied"
-    if (folder / (obsid + "_calibration_applied.txt")).exists():
+    if (folder / (obsid + "_calibration_applied.txt")).exists() or legacy_results.get((obsid, "applycal"), False):
         apply = "applied"
 
     uvflag = "not_done"
-    if (folder / (obsid + "_uvflag_done.txt")).exists():
+    if (folder / (obsid + "_uvflag_done.txt")).exists() or legacy_results.get((obsid, "uvflag"), False):
         uvflag = "done"
 
     image = "missing"
@@ -346,7 +402,7 @@ def decide_state(row):
 # One observation
 # ------------------------------------------------------------------------------------------------------------------
 
-def check_observation(project_dir, obsid, tile_list, checked_at):
+def check_observation(project_dir, obsid, tile_list, checked_at, legacy_results):
     folder = project_dir / obsid
     record = folder / (obsid + "_flagged_tiles.txt")
     prefix = str(folder / (obsid + "_local_gleam_model_solutions_initial"))
@@ -361,7 +417,7 @@ def check_observation(project_dir, obsid, tile_list, checked_at):
     row["tiles_missing_in_record"] = " ".join(str(tile) for tile in missing)
     row["tiles_not_in_list"] = " ".join(str(tile) for tile in extra)          # only used for the warnings, it is not a column of the table
     row["autocal"], row["autocal_pass"] = check_autocal(prefix, status, record)
-    row["apply"], row["uvflag"], row["image"], row["cube"], row["n_frames"] = check_later_steps(folder, obsid)
+    row["apply"], row["uvflag"], row["image"], row["cube"], row["n_frames"] = check_later_steps(folder, obsid, legacy_results)
     row["next"] = decide_next(row)
     row["state"] = decide_state(row)
     return row
@@ -390,6 +446,28 @@ def write_lists(project_dir, out_dir, rows, list_stem):
         list_file = out_dir / (list_stem + "_" + row["state"] + ".txt")
         with open(str(list_file), "a") as handle:
             handle.write(row["obsid"] + "\n")
+
+
+def write_step_lists(out_dir, rows, list_stem):
+    """Write overlapping finished/not-finished lists for each pipeline step."""
+    for step, field, success_values in STEP_SUCCESS:
+        finished_file = out_dir / f"{list_stem}_{step}_finished.txt"
+        not_finished_file = out_dir / f"{list_stem}_{step}_not_finished.txt"
+        finished_obsids = []
+        not_finished_obsids = []
+        for row in rows:
+            if row[field] in success_values:
+                finished_obsids.append(row["obsid"])
+            else:
+                not_finished_obsids.append(row["obsid"])
+
+        finished_file.write_text("".join(obsid + "\n" for obsid in finished_obsids))
+        not_finished_file.write_text("".join(obsid + "\n" for obsid in not_finished_obsids))
+
+    for old_name in ("apply_finished.txt", "apply_not_finished.txt"):
+        old_file = out_dir / f"{list_stem}_{old_name}"
+        if old_file.exists():
+            old_file.unlink()
 
 
 def find_warnings(rows, tile_list, tile_list_name, tile_problems):
@@ -461,7 +539,7 @@ def make_summary_text(list_name, rows, warnings, out_dir, checked_at):
 
 def main():
     parser = argparse.ArgumentParser(description="Where is every observation of a list in the pipeline, and what has to be done next?")
-    parser.add_argument("project_dir", help="the project folder, with one folder per observation")
+    parser.add_argument("project_dir", help="project folder path, or a project name under $MYSCRATCH")
     parser.add_argument("obs_list", help="the list of obsids, one per line")
     parser.add_argument("--tiles", help="your manual flag list: obsid, then the tiles to flag, one line per observation")
     parser.add_argument("--max-tile", type=int, help="the largest tile number of your array (the numbers in the titles of the solution plots); a larger number in the tile list is reported")
@@ -469,13 +547,12 @@ def main():
 
     project_dir = Path(args.project_dir)
     if not project_dir.is_dir():
-        # a bare project name, for example test6_tr0_nights: look for it in your scratch folder (GXSCRATCH, set by the profile)
-        scratch = os.environ.get("GXSCRATCH")
-        if scratch is not None:
-            if (Path(scratch) / project_dir).is_dir():
-                project_dir = Path(scratch) / project_dir
+        # A bare project name, for example test6_tr0_nights, is under MYSCRATCH.
+        scratch = os.environ.get("MYSCRATCH")
+        if scratch:
+            project_dir = Path(scratch) / project_dir
     if not project_dir.is_dir():
-        sys.exit(f"I cannot find the project folder {args.project_dir} (also looked for it inside GXSCRATCH)")
+        sys.exit(f"I cannot find the project folder {args.project_dir} (also looked for it inside MYSCRATCH)")
 
     # the lists may be given as a name of a file in the project folder
     if not Path(args.obs_list).is_file():
@@ -497,7 +574,8 @@ def main():
         tile_list, tile_problems = read_tile_list(args.tiles, args.max_tile)
 
     checked_at = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    rows = [check_observation(project_dir, obsid, tile_list, checked_at) for obsid in read_obs_list(args.obs_list)]
+    legacy_results = legacy_step_results(project_dir)
+    rows = [check_observation(project_dir, obsid, tile_list, checked_at, legacy_results) for obsid in read_obs_list(args.obs_list)]
 
     out_dir = project_dir / ("summary_" + Path(args.obs_list).stem)         # obs_list.txt gives the folder summary_obs_list
     out_dir.mkdir(exist_ok=True)
@@ -508,6 +586,7 @@ def main():
         writer.writerows(rows)
 
     write_lists(project_dir, out_dir, rows, Path(args.obs_list).stem)
+    write_step_lists(out_dir, rows, Path(args.obs_list).stem)
 
     warnings = find_warnings(rows, tile_list, args.tiles, tile_problems)
     (out_dir / "warnings.txt").write_text("".join(w + "\n" for w in warnings))

@@ -102,7 +102,7 @@ group.attrs['TIME_INTERVAL'] = args.step
 image_file = FILENAME.format(prefix=prefix, time=args.start, suffix=args.suffixes[0])
 hdus = fits.open(image_file, memmap=True)
 image_size = hdus[HDU].data.shape[-1]
-assert image_size % args.stamp_size == 0, "image_size must be divisible by stamp_size"
+assert image_size % args.stamp_size == 0, "image_size = %d, stamp_size = %d. image_size must be divisible by stamp_size" % (image_size, args.stamp_size)
 data_shape = [1, image_size, image_size, N_CHANNELS, args.n] # first axis is for polarisations
 logging.debug("data shape: %s" % data_shape)
 chunks = (1, args.stamp_size, args.stamp_size, N_CHANNELS, args.n)

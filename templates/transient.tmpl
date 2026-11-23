@@ -83,7 +83,7 @@ chan="$("${GXBASE}/sea_src/bin/pyhead.py" -p CENTCHAN "${metafits}" | awk '{prin
 
 # Settings to support transient imaging / cleaning
 niter=12000
-size=3200  # slightly increase image size to include more of the primary beam. hdf5 requires image size divisible by 16.
+size=3300  # change to 3200 later. hdf5 requires image size divisible by 16.
 taper=2amin
 auto_threshold=3
 minuv_l=50            # use 40 to be consistent with imaging? 
@@ -101,7 +101,35 @@ if [[ -n "${ramcopy}" ]]; then
     mkdir -p "${tmpdir}"
     test_fail $?
     cp -r "${obsid}.ms" "${tmpdir}/"
-    test_fail $?
+    copy_status=$?
+    if [[ ${copy_status} != 0 ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # RAM copy failed: ${tmpdir}/${obsid}.ms" >&2
+        {
+            echo "Copy exit status: ${copy_status}; node: $(hostname); Slurm memory per node (MiB): ${SLURM_MEM_PER_NODE:-not set}"
+            echo "Destination filesystem:"
+            findmnt -T "${tmpdir}"
+            echo "Destination filesystem space:"
+            df -h "${tmpdir}"
+            echo "Destination filesystem inodes:"
+            df -i "${tmpdir}"
+            echo "Node memory (not necessarily the job's memory limit):"
+            free -h
+            echo "Source measurement set disk usage:"
+            du -sh "${obsid}.ms"
+            if [[ -e "${tmpdir}/${obsid}.ms" ]]; then
+                echo "Partial copy disk usage:"
+                du -sh "${tmpdir}/${obsid}.ms"
+            else
+                echo "No partial copy exists at ${tmpdir}/${obsid}.ms"
+            fi
+        } >&2
+        rm -rf -- "${tmpdir}/${obsid}.ms"
+        remove_status=$?
+        if [[ ${remove_status} != 0 ]]; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # RAM copy failed and could not remove ${tmpdir}/${obsid}.ms" >&2
+        fi
+        test_fail "${copy_status}"
+    fi
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # RAM copy completed: ${tmpdir}/${obsid}.ms"
     ms="${tmpdir}/${obsid}.ms"
 else
@@ -140,6 +168,8 @@ intervals_out="${ninterval}"
 # -subtract-model	Subtract the model in MODEL_DATA, written by the deep clean, from the data.
 # -no-update-model-required	Do not overwrite MODEL_DATA, so the model stays intact
 # Use the time steps from start up to but not including stop, and make N separate images 
+rm -f "${obsid}"_transient-t????-*.fits      # always start from new frames: no old frames from a run that stopped halfway
+
 if [[ "$(ls "${obsid}"_transient-t????-image.fits 2>/dev/null | wc -l)" -ne $intervals_out ]]; then
     # makes one image per time step 
     wsclean \
@@ -223,8 +253,8 @@ test_fail $?
 # stack the image and the model frames into a hdf5 container
 # Use all the frames 
 # Note: make_imstack.py requires image_size % stamp_size == 0, default stamp is 16. So image size must be devidable by 16. 
-"${GXBASE}/sea_src/bin/make_imstack.py" --start 0 -n "${intervals_out}" "${obsid}_transient"
-test_fail $?
+# "${GXBASE}/sea_src/bin/make_imstack.py" --start 0 -n "${intervals_out}" "${obsid}_transient"
+# test_fail $?
 
 # Save the flags
 taql -m 1000 "select ctod(TIME), gsum(ntrue(amplitude(DATA[,::3])==0.0)), gsum(ntrue(FLAG[,::3])), gmean(WEIGHT_SPECTRUM[,::3]) from ${ms} where ANTENNA1 != ANTENNA2 groupby TIME" > "${obsid}_summary.txt"

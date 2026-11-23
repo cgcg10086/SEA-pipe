@@ -21,6 +21,7 @@ else
     tmpdir="/tmp/slurm_autocal_${jobid}"
 fi
 
+# checks the exit status reported by the command immediately before it 
 test_fail() {
     if [[ $1 != 0 ]]; then
         if [[ "${GXTRACK}" == "track" ]]; then
@@ -81,7 +82,35 @@ if [[ -n "${ramcopy}" ]]; then
     mkdir -p "${tmpdir}"
     test_fail $?
     cp -r "${obsid}.ms" "${tmpdir}"
-    test_fail $?
+    copy_status=$?
+    if [[ ${copy_status} != 0 ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # RAM copy failed: ${tmpdir}/${obsid}.ms" >&2
+        {
+            echo "Copy exit status: ${copy_status}; node: $(hostname); Slurm memory per node (MiB): ${SLURM_MEM_PER_NODE:-not set}"
+            echo "Destination filesystem:"
+            findmnt -T "${tmpdir}"
+            echo "Destination filesystem space:"
+            df -h "${tmpdir}"
+            echo "Destination filesystem inodes:"
+            df -i "${tmpdir}"
+            echo "Node memory (not necessarily the job's memory limit):"
+            free -h
+            echo "Source measurement set disk usage:"
+            du -sh "${obsid}.ms"
+            if [[ -e "${tmpdir}/${obsid}.ms" ]]; then
+                echo "Partial copy disk usage:"
+                du -sh "${tmpdir}/${obsid}.ms"
+            else
+                echo "No partial copy exists at ${tmpdir}/${obsid}.ms"
+            fi
+        } >&2
+        rm -rf -- "${tmpdir}/${obsid}.ms"
+        remove_status=$?
+        if [[ ${remove_status} != 0 ]]; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # RAM copy failed and could not remove ${tmpdir}/${obsid}.ms" >&2
+        fi
+        test_fail "${copy_status}"
+    fi
     echo "$(date '+%Y-%m-%d %H:%M:%S') # INFO # RAM copy completed: ${tmpdir}/${obsid}.ms"
     ms="${tmpdir}/${obsid}.ms"
 else
