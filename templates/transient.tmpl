@@ -252,9 +252,9 @@ test_fail $?
 
 # stack the image and the model frames into a hdf5 container
 # Use all the frames 
-# Note: make_imstack.py requires image_size % stamp_size == 0, default stamp is 16. So image size must be devidable by 16. 
-# "${GXBASE}/sea_src/bin/make_imstack.py" --start 0 -n "${intervals_out}" "${obsid}_transient"
-# test_fail $?
+# Note: make_imstack.py requires image_size % stamp_size == 0, default stamp was 16. So image size must be devidable by 16. 
+"${GXBASE}/sea_src/bin/make_imstack.py" --start 0 -n "${intervals_out}" "${obsid}_transient"
+test_fail $?
 
 # Save the flags
 taql -m 1000 "select ctod(TIME), gsum(ntrue(amplitude(DATA[,::3])==0.0)), gsum(ntrue(FLAG[,::3])), gmean(WEIGHT_SPECTRUM[,::3]) from ${ms} where ANTENNA1 != ANTENNA2 groupby TIME" > "${obsid}_summary.txt"
