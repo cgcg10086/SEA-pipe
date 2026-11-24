@@ -39,7 +39,10 @@ fi
 
 cd "${project_dir}/${obsid}" || exit
 
-rm -f "${obsid}_calibration_applied.txt" || test_fail $?
+if [[ -e "${obsid}_calibration_applied.txt" ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # Calibration is already marked as applied for ${obsid}; refusing to apply it again." >&2
+    test_fail 1
+fi
 
 metafits="${obsid}.metafits"
 if [[ ! -f "${metafits}" ]] || [[ ! -s "${metafits}" ]]; then
@@ -101,6 +104,12 @@ if [[ -n "${debug}" ]]; then # If in debugging mode, apply to the CORRECTED_DATA
     nocopy=
 else # If in production mode, apply to the DATA column
     nocopy="-nocopy"
+fi
+
+attempt_dir="${obsid}_calibration_apply_attempt"
+if ! mkdir -- "${attempt_dir}"; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') # ERROR # Cannot start calibration application for ${obsid}: ${attempt_dir} could not be created. Another attempt may be running or require inspection." >&2
+    test_fail 1
 fi
 
 if [[ -n "$nocopy" ]]; then

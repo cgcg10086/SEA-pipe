@@ -25,6 +25,7 @@ Every observation is in exactly one of them, so the lists add up to the whole ob
     obs_list_flagged.txt          the flags are applied; the second autocal is next
     obs_list_autocal2.txt         second autocal done; applying the calibration is next
     obs_list_qc_failed.txt        the quality check refused the solutions after the flags: a person decides
+    obs_list_apply_uncertain.txt  calibration application started but has no success marker; inspect it
     obs_list_applied.txt          calibration applied; uvflag is next
     obs_list_uvflagged.txt        uvflag done; the image is next
     obs_list_imaged.txt           image done; the cube is next
@@ -44,6 +45,7 @@ For applycal and uvflag, older runs without marker files are checked against mat
 
 The actions, in the order they are checked:
     download            no folder, or no measurement set
+    review_apply_uncertain  an application is running or its outcome is uncertain; do not retry automatically
     autocal             first run missing, or a run ended in an unexpected way, or the solutions are older than the flags (pass 2 needed)
     fix_tile_list       the observation is in the tile list more than once
     inspect_and_list    pass 1 is done, but the observation is not in the tile list yet, or is marked TODO: somebody has to look at it
@@ -77,6 +79,7 @@ STATES = [
     ("flagged", "autocal (second)"),
     ("autocal2", "apply"),
     ("qc_failed", "you decide"),
+    ("apply_uncertain", "inspect application"),
     ("applied", "uvflag"),
     ("uvflagged", "image"),
     ("imaged", "cube"),
@@ -312,7 +315,11 @@ def number_of_frames(cube):
 def check_later_steps(folder, obsid, legacy_results):
     """The later steps leave one product each."""
     apply = "not_applied"
-    if (folder / (obsid + "_calibration_applied.txt")).exists() or legacy_results.get((obsid, "applycal"), False):
+    if (folder / (obsid + "_calibration_applied.txt")).exists():
+        apply = "applied"
+    elif (folder / (obsid + "_calibration_apply_attempt")).exists():
+        apply = "application_uncertain"
+    elif legacy_results.get((obsid, "applycal"), False):
         apply = "applied"
 
     uvflag = "not_done"
@@ -340,6 +347,8 @@ def check_later_steps(folder, obsid, legacy_results):
 def decide_next(row):
     if row["download"] != "ok":
         return "download"
+    if row["apply"] == "application_uncertain":
+        return "review_apply_uncertain"
     if row["autocal"] == "not_run" and row["flags"] in ("not_applied", "incomplete"):
         return "flag"                                 # you decided on these tiles before (an earlier run): flag first, then calibrate only once
     if row["autocal"] == "not_run":
@@ -385,6 +394,8 @@ def decide_state(row):
         return "inspected"
     if next_action == "review_qc_failed":
         return "qc_failed"
+    if next_action == "review_apply_uncertain":
+        return "apply_uncertain"
     if next_action == "apply":
         if row["flags"] == "not_checked":
             return "autocal1"                         # without a tile list the summary cannot tell the two autocal runs apart
