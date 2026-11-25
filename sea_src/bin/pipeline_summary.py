@@ -41,6 +41,7 @@ The summary folder also has overlapping per-step lists:
     obs_list_<step>_finished.txt      the step's success condition is present
     obs_list_<step>_not_finished.txt  the success condition is not present (not necessarily a job failure)
 Steps are download, autocal, flags, applycal, uvflag, image, and transient. These lists are rebuilt on every run.
+The transient step is finished only when both the FITS cube and a readable HDF5 stack with the expected datasets and frame count exist.
 For applycal and uvflag, older runs without marker files are checked against matching SLURM task logs.
 
 The actions, in the order they are checked:
@@ -63,6 +64,8 @@ import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+import h5py
 
 
 # the autocal outcomes that are NOT the quality check refusing the solutions: something went wrong that nobody expected
@@ -312,6 +315,37 @@ def number_of_frames(cube):
     return ""
 
 
+def check_transient_hdf5(path, expected_frames=None):
+    """Check that the transient HDF5 stack is readable and has the expected datasets and frame count."""
+    if not path.is_file():
+        return "hdf5_missing"
+
+    try:
+        with h5py.File(path, "r") as stack:
+            image = stack.get("image")
+            model = stack.get("model")
+            gpstime = stack.get("gpstime")
+            timestamp = stack.get("timestamp")
+            datasets = (image, model, gpstime, timestamp)
+            if not all(isinstance(dataset, h5py.Dataset) for dataset in datasets):
+                return "hdf5_invalid"
+            if (
+                image.ndim != 5
+                or model.shape != image.shape
+                or any(dimension <= 0 for dimension in image.shape)
+            ):
+                return "hdf5_invalid"
+            frame_count = image.shape[-1]
+            if gpstime.shape != (frame_count,) or timestamp.shape != (frame_count,):
+                return "hdf5_invalid"
+            if expected_frames is not None and frame_count != expected_frames:
+                return "hdf5_invalid"
+    except OSError:
+        return "hdf5_invalid"
+
+    return "ok"
+
+
 def check_later_steps(folder, obsid, legacy_results):
     """The later steps leave one product each."""
     apply = "not_applied"
@@ -330,12 +364,17 @@ def check_later_steps(folder, obsid, legacy_results):
     if (folder / (obsid + "_deep-MFS-image.fits")).exists():
         image = "ok"
 
-    cube = "missing"
+    cube = "missing_fits_cube"
     n_frames = ""
     cube_file = folder / (obsid + "_transient-cube.fits")
-    if cube_file.exists():
-        cube = "ok"
+    if cube_file.is_file():
         n_frames = number_of_frames(cube_file)
+        hdf5_file = folder / (obsid + "_transient.hdf5")
+        hdf5_status = check_transient_hdf5(
+            hdf5_file,
+            n_frames if isinstance(n_frames, int) else None,
+        )
+        cube = hdf5_status
 
     return apply, uvflag, image, cube, n_frames
 
