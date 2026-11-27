@@ -250,6 +250,7 @@ main() {
     fi
     if [[ "${#obsid_array[@]}" -eq 0 ]]; then # Every obsid already exists, so there is nothing to submit.
         tidy-up_log_files
+        echo "NO_DOWNLOAD_NEEDED"
         exit 0
     fi
     echo -e "${BLD}${BGRN}$(date '+%Y-%m-%d %H:%M:%S') # LOG # All sanity checks in obs_manta.sh passed.${RST}"

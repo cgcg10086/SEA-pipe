@@ -13,11 +13,14 @@ Options:
     -p project      : (Required) Basename of the project directory.
     -b batchsize    : The size of the batch to process. Default is 100. This is to avoid SLURM job submission limits of 1000 submitted jobs.
                       Since there are at least 4 mandatory processing steps (autocal, apply_cal, uvflag, image), the batch size must be at less than 250.
+    -C              : Stop after Calibration and do not continue with the rest of the processing steps. This is used to inspect solution and write flag files.
+    -A              : Start from Applycal and assume that flagging and calibration have been done. 
     -c calid        : The ObsID(s) of the calibration observation(s) to use. If a single ObsID is specified, solutions from project/calid/calid_*_solutions.bin
                       will be applied. If obsinp is a text file, then calid can be a one-to-one map to the ObsIDs to be processed. Default is obsinp.
     -g              : Get the data from ASVO. If not specified, the data is assumed to be already present in the project directory.
-    -f tilelist     : Flag tiles before calibration, using obs_autoflag.sh. tilelist is a text file in the project directory with one line
+    -f tilelist     : Flag tiles before calibration, using obs_autoflag.sh. tilelist is a text file in the project directory with at most one line
                       per observation: the obsid, then the tile indices to flag (for example: 1234567890 12 45 93  # a comment).
+                      Observations absent from the tile list are not flagged.
                       Currently, uvflag.sh attempts to flag bad visibilities (those having large amplitudes).
     -r              : Copy the mesaurement set to RAM, avoiding a significant disk I/O.
                       Faster, but needs ~3x as much RAM as the size of the measurement set. Disabled by default.
@@ -185,21 +188,34 @@ sanity_checks() {
 
 call_submission_script() {
     local script="$1"
-    local other_args="${@:2}" # Capture all arguments after the first one
+    local other_args="${@:2}" # Capture all arguments after the first one 
+    local exit_code
+    local -a stdout=()
 
-    mapfile -t stdout < <(${script} ${test} ${depend} -p ${project} ${other_args} ${batch_file}; echo "$?") # Capture the exit code of obs_manta.sh and append it to the stdout array.
+    mapfile -t stdout < <("${script}" ${test} ${depend} -p "${project}" ${other_args} "${batch_file}"; echo "$?")
     printf '%s\n' "${stdout[@]:0:${#stdout[@]}-1}" # Print each line of the stdout captured in the stdout array to a new line, except the last one.
-    exit_code="${stdout[-1]}" # Extract the last line of the stdout captured above, which is the exit code of obs_manta.sh.
+    exit_code="${stdout[-1]}"
+    if [[ "${exit_code}" -ne 0 ]]; then
+        echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # ${script} failed with exit code ${exit_code}. Aborting further processing.${RST}" 1>&2
+        return "${exit_code}"
+    fi
+    if [[ "${script}" == "obs_manta.sh" && "${#stdout[@]}" -ge 2 && "${stdout[-2]}" == "NO_DOWNLOAD_NEEDED" ]]; then
+        return 0
+    fi
     if [[ -z "${test}" ]]; then
-        jobid="${stdout[-2]}" # Extract the second-to-last line of the stdout captured above.
-        jobid="${jobid##* }" # Extract the last word from the second-to-last line, which is the job ID.
+        if [[ "${#stdout[@]}" -lt 2 ]]; then
+            echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # ${script} did not report a job ID.${RST}" >&2
+            return 1
+        fi
+        jobid="${stdout[-2]}"
+        jobid="${jobid##* }"
+        if ! [[ "${jobid}" =~ ^[0-9]+$ ]]; then
+            echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # ${script} returned an invalid job ID: ${jobid}.${RST}" >&2
+            return 1
+        fi
         all_submitted_jobs+=("${jobid}")
         depend="-d ${jobid}"
         echo -e "${BLD}${BGRN}$(date '+%Y-%m-%d %H:%M:%S') # LOG # JobID for ${script}: ${jobid}.${RST}"
-    fi
-    if [[ "${exit_code}" -ne 0 ]]; then
-        echo -e "${BLD}${BRED}$(date '+%Y-%m-%d %H:%M:%S') # ERROR # ${script} failed with exit code ${exit_code}. Aborting further processing.${RST}" 1>&2
-        return ${exit_code}
     fi
     sleep 1 # Sleep for a second to avoid overwhelming the SLURM scheduler with too many job submissions in a short time.
 }
@@ -223,56 +239,67 @@ process_obsids() {
             calid="${batch_file}"
         fi
 
-        if [[ -n "${getdata}" ]]; then
-            call_submission_script "obs_manta.sh" || return $?
-        fi
-
-        if [[ -n "${tilelist}" ]]; then
-            # obs_autoflag.sh reads a tile list, not a list of obsids. Give it only the lines of the tile list that belong to this batch.
-            obsid_batch_file="${batch_file}"
-            batch_file="${batch_file}.tiles"
-            rm -f "${batch_file}"     # start with an empty file
-            for batch_obsid in "${batch_obsids[@]}"; do
-                grep "${batch_obsid}" "${tilelist}" >> "${batch_file}"     # copy the lines of the tile list that contain this obsid
-            done
-            if [[ -s "${batch_file}" ]]; then
-                call_submission_script "obs_autoflag.sh" || return $?
-            else
-                echo -e "${BLD}${BCYN}$(date '+%Y-%m-%d %H:%M:%S') # INFO #${RST} No observation of this batch is in ${tilelist}, so nothing is flagged."
+        if [[ -z "${start_applycal}" ]]; then
+            if [[ -n "${getdata}" ]]; then
+                call_submission_script "obs_manta.sh" -s 4 -k 80 -f 80 || return $? # 4 second (see GPM discussion), 80 kHz frequency resolution (fine for transient searching?), 80 kHz edge flagging.
             fi
-            batch_file="${obsid_batch_file}"
+
+            if [[ -n "${tilelist}" ]]; then
+                # Keep the autoflag and autocal task numbers aligned, including observations with no flags.
+                obsid_batch_file="${batch_file}"
+                batch_file="${batch_file}.tiles"
+                : > "${batch_file}" || return 1
+                for batch_obsid in "${batch_obsids[@]}"; do
+                    awk -v obsid="${batch_obsid}" '
+                        { sub(/#.*/, "") }
+                        $1 == obsid { count++; line = $0 }
+                        END {
+                            if (count > 1) {
+                                print "Error: duplicate flag-list entries for " obsid > "/dev/stderr"
+                                exit 1
+                            }
+                            if (count == 1) print line
+                            else print obsid
+                        }
+                    ' "${tilelist}" >> "${batch_file}" || return 1
+                done
+                call_submission_script "obs_autoflag.sh" || return $?
+                batch_file="${obsid_batch_file}"
+            fi
+
+            call_submission_script "obs_autocal.sh" "${ramcopy}" || return $?
         fi
 
-        call_submission_script "obs_autocal.sh" "${ramcopy}" || return $?
+        if [[ -z "${stop_autocal}" ]]; then
+            call_submission_script "obs_apply_cal.sh" -c "${calid}" "${debug}" || return $?
 
-        call_submission_script "obs_apply_cal.sh" -c ${calid} ${debug} || return $?
+            call_submission_script "obs_uvflag.sh" ${debug} || return $?
 
-        call_submission_script "obs_uvflag.sh" ${debug} || return $?
+            if [[ -n "${uvsub}" ]]; then
+                call_submission_script "obs_uvsub.sh" "${debug}" || return $?
+            fi
 
-        if [[ -n "${uvsub}" ]]; then
-            call_submission_script "obs_uvsub.sh" "${debug}" || return $?
-        fi
+            if [[ -n "${sidelobe}" ]]; then
+                call_submission_script "obs_sidelobe_sub.sh" "${debug}" || return $?
+            fi
 
-        if [[ -n "${sidelobe}" ]]; then
-            call_submission_script "obs_sidelobe_sub.sh" "${debug}" || return $?
-        fi
+            if [[ -n "${selfcal}" ]]; then
+                call_submission_script "obs_selfcal.sh" "${debug}" || return $?
 
-        if [[ -n "${selfcal}" ]]; then
-            call_submission_script "obs_selfcal.sh" "${debug}" || return $?
+                call_submission_script "obs_apply_cal.sh" -s -c "${calid}" "${debug}" || return $?
+            fi
 
-            call_submission_script "obs_apply_cal.sh" -s -c "${calid}" "${debug}" || return $?
-        fi
+            call_submission_script "obs_image.sh" "${ramcopy}" "${debug}" || return $?
 
-        call_submission_script "obs_image.sh" "${ramcopy}" "${debug}" || return $?
+            if [[ -n "${postimage}" ]]; then
+                call_submission_script "obs_postimage.sh" || return $?
+            fi
 
-        if [[ -n "${postimage}" ]]; then
-            call_submission_script "obs_postimage.sh" || return $?
-        fi
+            if [[ -n "${transient}" ]]; then
+                call_submission_script "obs_transient.sh" "${ramcopy}" "${debug}" || return $?
 
-        if [[ -n "${transient}" ]]; then
-            call_submission_script "obs_transient.sh" "${ramcopy}" "${debug}" || return $?
-
-            # call_submission_script "obs_tfilter.sh" || return $?
+                # call_submission_script "obs_tfilter.sh" || return $?
+            fi
         fi
 
         if [[ -n "${test}" ]] || ! [[ "${jobid}" =~ ^[0-9]+$ ]]; then
@@ -312,6 +339,8 @@ main() {
     depend=
     test=
     batchsize=100
+    stop_autocal=
+    start_applycal=
     getdata=
     tilelist=
     ramcopy=
@@ -329,7 +358,7 @@ main() {
         usage
         exit 0
     fi
-    while getopts 'e:d:p:b:c:gf:rzumnisth' OPTION; do
+    while getopts 'e:d:p:b:c:gf:rzumnisthCA' OPTION; do
         case "$OPTION" in
             e)
                 profile=${OPTARG}
@@ -342,6 +371,12 @@ main() {
                 ;;
             b)
                 batchsize="${OPTARG}"
+                ;;
+            C)
+                stop_autocal=1
+                ;;
+            A)
+                start_applycal=1
                 ;;
             c)
                 calid="${OPTARG}"
@@ -384,6 +419,11 @@ main() {
 
     shift  "$((${OPTIND} - 1))"
     obsinp="$@"
+
+    if [[ -n "${start_applycal}" && ( -n "${stop_autocal}" || -n "${getdata}" || -n "${tilelist}" ) ]]; then
+        echo "Error: -A cannot be combined with -C, -g, or -f." >&2
+        exit 1
+    fi
 
     sanity_checks
     exit_code=$?
